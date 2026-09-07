@@ -74,9 +74,11 @@ As seguintes tabelas são **criadas dinamicamente** pelo programa a cada execuç
 - **`quadras_p1`, `quadras_p2`, ..., `quadras_pN`** — Partições filhas das quadras.
 - **`ruas_p1`, `ruas_p2`, ..., `ruas_pN`** — Partições filhas das ruas.
 
-> ⚠️ **Atenção:** A cada execução, essas tabelas são **removidas e recriadas** (`DROP CASCADE`). Qualquer dado anterior será perdido.
+**Atenção:** A cada execução, essas tabelas são **removidas e recriadas** (`DROP CASCADE`). Qualquer dado anterior será perdido.
 
 ---
+
+dados Brasil: https://download.geofabrik.de/south-america.html
 
 ## Configuração da Conexão
 
