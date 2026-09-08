@@ -200,7 +200,3 @@ Geometrias `EMPTY` não geram cópias porque não participam do join de interse�
 
 A recriação e a carga ocorrem na mesma transação. Após a carga, os runners executam `ANALYZE`. O Fixed Grid mantém sua grade 2 × 2 e usa deduplicação por pares de IDs, sem a segunda camada do Two-Layer.
 
-
-## Contexto acadêmico
-
-Projeto de TCC — UFPR.
