@@ -1,22 +1,30 @@
 package benchmark;
 
+import benchmark.cenarios.CenariosBrasil;
 import benchmark.cenarios.CenariosCuritiba;
 import benchmark.configuracao.ConfiguracaoBanco;
 import benchmark.execucao.EstrategiaExecucao;
 import benchmark.execucao.ExecutorBenchmark;
 import benchmark.resultados.ResultadoBenchmark;
 
+import java.util.ArrayList;
 import java.util.Scanner;
 
 /** Entrada interativa: seleciona configurações, chama o executor e apresenta o resultado. */
 public class CenarioTesteRunner {
     public static void main(String[] args) throws Exception {
-        var cenarios = CenariosCuritiba.listar();
+        var cenarios = new ArrayList<CenarioTeste>();
+        cenarios.addAll(CenariosCuritiba.listar());
+        cenarios.addAll(CenariosBrasil.listar());
+
         Scanner scanner = new Scanner(System.in);
+        
         System.out.println("\n=== CENÁRIOS DE TESTE ===");
+
         for (int i = 0; i < cenarios.size(); i++) {
             System.out.println((i + 1) + " - " + cenarios.get(i));
         }
+
         int escolhido = escolher(scanner, "Selecione o cenário: ", cenarios.size());
         var cenario = cenarios.get(escolhido - 1);
         String tabelaA = ConfiguracaoBanco.valor("tabela.a", "TABELA_A", cenario.datasetA().tabela());
