@@ -1,250 +1,206 @@
-# Benchmark Espacial — Particionador Dinâmico para PostgreSQL/PostGIS
+# Benchmark Espacial — Java e PostgreSQL/PostGIS
 
-Middleware em Java que lê dados espaciais (quadras e ruas) do PostgreSQL/PostGIS, executa algoritmos de particionamento espacial na memória e transfere os resultados de volta ao banco, criando toda a estrutura de tabelas particionadas dinamicamente.
-
-O objetivo final é realizar um **Spatial Join massivo** delegando o cruzamento ao motor relacional, tirando proveito da otimização de **Partition-wise Join** nativa do PostgreSQL.
-
----
+Executa joins de interseção espacial em três modos: Fixed Grid, Two-Layer e sem particionamento. Os runners selecionam os experimentos; um executor compartilhado coordena a extração, o particionamento, a carga e a consulta.
 
 ## Pré-requisitos
 
-| Componente | Versão mínima |
-|---|---|
-| **Java (JDK)** | 17 |
-| **Apache Maven** | 3.6+ |
-| **PostgreSQL** | 12+ (recomendado 15+) |
-| **PostGIS** | 3.0+ |
+- Java (JDK) 17 ou superior e Maven 3.6+.
+- PostgreSQL 12+ com PostGIS 3.0+.
+- Dependências Maven: JTS `1.19.0` e JDBC PostgreSQL `42.7.2`.
 
-### Dependências (gerenciadas pelo Maven)
-
-- `org.locationtech.jts:jts-core:1.19.0` — Biblioteca de geometria JTS
-- `org.postgresql:postgresql:42.7.2` — Driver JDBC do PostgreSQL
-
----
-
-## Configuração do Banco de Dados
-
-### 1. Criar o banco, habilitar PostGIS e configurar Partition-wise Join
+## Preparar o banco
 
 ```sql
 CREATE DATABASE tcc_espacial;
 \c tcc_espacial
 CREATE EXTENSION IF NOT EXISTS postgis;
-SET enable_partitionwise_join = on;
 ```
 
-> **Dica:** Para tornar o `enable_partitionwise_join` permanente no banco, execute:
-> ```sql
-> ALTER DATABASE tcc_espacial SET enable_partitionwise_join = on;
-> ```
+As tabelas de entrada devem estar carregadas previamente. O catálogo `CenariosCuritiba` usa o schema `public`, ID inteiro `ogc_fid`, geometria `wkb_geometry` e SRID 31982:
 
-### 2. Tabelas de dados de entrada (obrigatórias)
-
-O programa espera que as seguintes tabelas já existam no banco com os dados carregados:
-
-#### `arruamento_quadras`
-Contém as geometrias das quadras urbanas.
-
-| Coluna | Tipo | Descrição |
+| Cenário | Dataset A | Dataset B |
 |---|---|---|
-| `ogc_fid` | INTEGER | Identificador único |
-| `wkb_geometry` | geometry (MultiPolygon, 31982) | Geometria da quadra |
+| Ruas x Quadras | `eixo_rua` (MultiLineString) | `arruamento_quadras` (MultiPolygon) |
+| Quadras x Bairros | `arruamento_quadras` (MultiPolygon) | `divisa_de_bairros` (MultiPolygon) |
+| Ruas x Bairros | `eixo_rua` (MultiLineString) | `divisa_de_bairros` (MultiPolygon) |
+| Quadras x Regionais | `arruamento_quadras` (MultiPolygon) | `divisa_de_regionais` (MultiPolygon) |
 
-#### `eixo_rua`
-Contém as geometrias dos eixos de rua.
+Os dados de Curitiba ficam em `dados/curitiba/`. Os dumps em `dados/curitiba/despejo/` já usam esses nomes de colunas. Exemplo de importação:
 
-| Coluna | Tipo | Descrição |
+```bash
+psql -d tcc_espacial -f dados/curitiba/despejo/EIXO_RUA.sql
+psql -d tcc_espacial -f dados/curitiba/despejo/ARRUAMENTO_QUADRAS.sql
+```
+
+Os dumps contêm comandos de remoção e recriação das respectivas tabelas. Ao importar por QGIS ou outra ferramenta, confira os nomes das colunas e o SRID.
+
+## Configuração e execução
+
+| Variável | Propriedade Java | Padrão |
 |---|---|---|
-| `ogc_fid` | INTEGER | Identificador único |
-| `wkb_geometry` | geometry (MultiLineString, 31982) | Geometria da rua |
+| `DB_URL` | `db.url` | `jdbc:postgresql://localhost:5432/tcc_espacial` |
+| `DB_USER` | `db.user` | `postgres` |
+| `DB_PASSWORD` | `db.password` | `1234` |
+| `TABELA_A` | `tabela.a` | Tabela A do cenário escolhido |
+| `TABELA_B` | `tabela.b` | Tabela B do cenário escolhido |
+| — | `twoLayer.celulasPorEixo` | `10` |
 
-> **Dica:** Os shapefiles estão disponíveis na pasta `dados/`. Para importá-los, use o `shp2pgsql` ou o QGIS:
-> ```bash
-> shp2pgsql -s 31982 dados/ARRUAMENTO_QUADRAS_SIRGAS/ARRUAMENTO_QUADRAS.shp arruamento_quadras | psql -d tcc_espacial
-> shp2pgsql -s 31982 dados/EIXO_RUA_SIRGAS/EIXO_RUA.shp eixo_rua | psql -d tcc_espacial
-> ```
-
-### 3. Tabelas de saída (criadas automaticamente)
-
-As seguintes tabelas são **criadas dinamicamente** pelo programa a cada execução (não é necessário criá-las manualmente):
-
-- **`quadras_particionadas`** — Tabela-mãe particionada por `LIST (id_particao)` com geometria `MultiPolygon`.
-- **`ruas_particionadas`** — Tabela-mãe particionada por `LIST (id_particao)` com geometria `MultiLineString`.
-- **`grade_metadados`** — Tabela simples com a geometria de cada célula da grade de particionamento.
-- **`quadras_p1`, `quadras_p2`, ..., `quadras_pN`** — Partições filhas das quadras.
-- **`ruas_p1`, `ruas_p2`, ..., `ruas_pN`** — Partições filhas das ruas.
-
-> ⚠️ **Atenção:** A cada execução, essas tabelas são **removidas e recriadas** (`DROP CASCADE`). Qualquer dado anterior será perdido.
-
----
-
-## Configuração da Conexão
-
-A configuração é feita via **variáveis de ambiente** ou **propriedades do sistema** (`-D`), com valores padrão embutidos:
-
-| Variável de Ambiente | Propriedade `-D` | Padrão | Descrição |
-|---|---|---|---|
-| `DB_URL` | `db.url` | `jdbc:postgresql://localhost:5432/tcc_espacial` | URL de conexão JDBC |
-| `DB_USER` | `db.user` | `postgres` | Usuário do banco |
-| `DB_PASSWORD` | `db.password` | `1234` | Senha do banco |
-| `TABELA_QUADRAS` | `tabela.quadras` | `arruamento_quadras` | Tabela de quadras (BenchmarkRunner) |
-| `TABELA_RUAS` | `tabela.ruas` | `eixo_rua` | Tabela de ruas (BenchmarkRunner) |
-| `TABELA_A` | `tabela.a` | *(do cenário)* | Tabela A (CenarioTesteRunner) |
-| `TABELA_B` | `tabela.b` | *(do cenário)* | Tabela B (CenarioTesteRunner) |
-
-Propriedades `-D` têm prioridade sobre variáveis de ambiente.
-
----
-
-## Como Compilar e Executar
-
-### Compilar
+Propriedades `-D` têm prioridade sobre variáveis de ambiente. As substituições de tabela preservam schema, colunas, tipo e SRID do cenário. Para alterar esses atributos, configure um `DatasetEspacial` em um catálogo ou runner próprio.
 
 ```bash
-mvn clean compile
+mvn compile exec:java -Dexec.mainClass="benchmark.CenarioTesteRunner"
 ```
 
-### Executar
+Exemplo com outro banco e tabelas compatíveis com o cenário selecionado:
 
 ```bash
-mvn exec:java -Dexec.mainClass="benchmark.BenchmarkRunner"
+mvn compile exec:java -Dexec.mainClass="benchmark.CenarioTesteRunner" \
+  -Ddb.url=jdbc:postgresql://localhost:5432/meu_banco \
+  -Dtabela.a=minhas_ruas -Dtabela.b=minhas_quadras \
+  -DtwoLayer.celulasPorEixo=10
 ```
 
-Para customizar tabelas ou banco via propriedades:
+Primeiro escolha o cenário; depois, o modo:
 
-```bash
-mvn exec:java -Dexec.mainClass="benchmark.BenchmarkRunner" \
-  -Dtabela.quadras=ARRUAMENTO_QUADRAS \
-  -Dtabela.ruas=EIXO_RUA \
-  -Ddb.url=jdbc:postgresql://localhost:5432/meu_banco
-```
-
-Ou via variáveis de ambiente:
-
-```bash
-export TABELA_QUADRAS=ARRUAMENTO_QUADRAS
-export TABELA_RUAS=EIXO_RUA
-mvn exec:java -Dexec.mainClass="benchmark.BenchmarkRunner"
-```
-
----
-
-## Uso
-
-Ao executar o programa, o seguinte fluxo acontece:
-
-### 1. Configuração
-O programa exibe as tabelas e banco configurados (via variáveis de ambiente ou `-D`):
-
-```
-=== CONFIGURAÇÃO ===
-Tabela de quadras: arruamento_quadras
-Tabela de ruas: eixo_rua
-Banco: jdbc:postgresql://localhost:5432/tcc_espacial
-```
-
-### 2. Extração de dados
-O programa conecta ao PostgreSQL e lê todas as geometrias das tabelas configuradas.
-
-### 3. Seleção do algoritmo
-Um menu interativo é exibido no console:
-
-```
-Selecione o algoritmo de particionamento:
+```text
 1 - Fixed Grid
 2 - Two-Layer SOP
-Opção: _
+3 - Sem particionamento
 ```
 
-| Opção | Algoritmo | Descrição |
-|---|---|---|
-| **1** | Fixed Grid | Divide o espaço em uma grade regular fixa |
-| **2** | Two-Layer SOP | Particionamento em duas camadas (Strip-based Optimal Partitioning) |
-| Outro | Fixed Grid (padrão) | Qualquer valor diferente usa Fixed Grid como fallback |
+O programa exibe cenário, modo, número de partições, interseções encontradas e tempo do join. Entradas inválidas no menu pedem uma nova seleção.
 
-### 4. Particionamento
-O algoritmo escolhido processa as geometrias na memória e determina automaticamente o número ideal de partições (N).
+`Main` é um atalho para o mesmo menu, mantido para funcionar com configurações antigas da IDE. Ele não possui mais um pipeline próprio. Use `TABELA_A`/`TABELA_B` em lugar das antigas opções `TABELA_QUADRAS`/`TABELA_RUAS`.
 
-### 5. Setup dinâmico do banco
-O programa recria toda a estrutura DDL no PostgreSQL:
-- Remove tabelas anteriores (`DROP CASCADE`)
-- Cria as tabelas-mãe com `PARTITION BY LIST`
-- Cria N partições filhas (`quadras_p1..pN`, `ruas_p1..pN`)
-- Cria índices espaciais GiST
+## Fluxo e resultados no banco
 
-### 6. Inserção dos dados
-Os dados particionados são inseridos nas tabelas correspondentes via batch INSERT.
+Nas opções 1 e 2, o executor extrai as duas entradas, aplica o particionador e substitui as saídas em uma transação, com rollback se a carga falhar. Todos os runners que usam esse executor escrevem nas mesmas tabelas do schema `public`:
 
-### 7. Conclusão
-Ao final, o banco está pronto para executar o Spatial Join com Partition-wise Join:
+- `tabela_a_particionada` e `tabela_b_particionada`: tabelas-mãe com `id`, `id_particao`, `classe` e `geom`.
+- `tabela_a_p1…pN` e `tabela_b_p1…pN`: partições filhas.
+- `grade_metadados`: ID e geometria de cada célula.
+
+**Uma execução particionada substitui a anterior**, inclusive as partições filhas, usando `DROP TABLE ... CASCADE`. Não há histórico automático nem suporte a execuções concorrentes sobre essas mesmas saídas. O Two-Layer com 10 células por eixo cria 100 partições por tabela; o Fixed Grid cria quatro.
+
+Na opção 3, o join roda diretamente nas entradas, usando seus índices existentes. Não há extração para Java, carga ou alteração das tabelas de saída. `Partições` aparece como “não se aplica”.
+
+As tabelas antigas `quadras_particionadas`, `ruas_particionadas` e suas filhas, produzidas pela versão anterior do `Main`, não são mais usadas nem removidas automaticamente. No QGIS, use as saídas compartilhadas acima; camadas já adicionadas ao projeto não são removidas por um refresh do mapa.
+
+### Consulta das saídas Two-Layer
 
 ```sql
--- Exemplo de Spatial Join particionado
 SET enable_partitionwise_join = on;
-
-SELECT q.id AS id_quadra, r.id AS id_rua
-FROM quadras_particionadas q
-JOIN ruas_particionadas r
-  ON q.id_particao = r.id_particao
- AND ST_Intersects(q.geom, r.geom);
+SELECT a.id AS id_a, b.id AS id_b
+FROM public.tabela_a_particionada a
+JOIN public.tabela_b_particionada b
+  ON a.id_particao = b.id_particao
+ AND (a.classe = 'A' OR b.classe = 'A'
+      OR (a.classe = 'B' AND b.classe = 'C')
+      OR (a.classe = 'C' AND b.classe = 'B'))
+ AND ST_Intersects(a.geom, b.geom);
 ```
 
----
+Para consultar pares do Fixed Grid, use `SELECT DISTINCT a.id, b.id` com igualdade de `id_particao` e `ST_Intersects(a.geom, b.geom)`, sem o filtro de classes.
 
-## Cenários de Teste
+### Medição
 
-O projeto inclui um runner separado (`CenarioTesteRunner`) que permite executar cenários de teste pré-definidos com diferentes combinações de tabelas espaciais.
+O tempo é medido com `System.nanoTime()` e inclui a consulta e a leitura de sua contagem. Extração, particionamento, DDL, carga e `ANALYZE` ficam fora dessa medição. A contagem usa `long`.
 
-### Executar
+É uma medição por execução, sem aquecimento ou repetições automáticas. Compare também os pares encontrados, os índices disponíveis e o estado do cache antes de tirar conclusões sobre desempenho. O Fixed Grid usa uma grade 2 × 2 comum às entradas e replica cada geometria nas células tocadas por seu MBR, incluindo bordas. O join usa `DISTINCT` sobre o par de IDs originais para evitar contagem duplicada; essa deduplicação está incluída no tempo medido. Os IDs de cada entrada devem ser únicos e não nulos. Diferentemente do Two-Layer, o Fixed Grid não usa classes A/B/C/D para eliminar duplicações; a coluna `classe` recebe A apenas por compatibilidade com a estrutura de saída.
+
+## Organização do código
+
+```text
+src/main/java/benchmark/
+├── CenarioTesteRunner.java          # Menu e apresentação do resultado
+├── BenchmarkRunner.java             # Atalho para o mesmo menu
+├── CenarioTeste.java                # Nome e dois datasets, sem SQL
+├── configuracao/
+│   ├── ConfiguracaoBanco.java        # Conexão, propriedades e ambiente
+│   └── DatasetEspacial.java         # Schema, tabela, colunas, tipo e SRID
+├── cenarios/
+│   └── CenariosCuritiba.java         # Catálogo reutilizável
+├── execucao/
+│   ├── ExecutorBenchmark.java        # Pipeline compartilhado
+│   └── EstrategiaExecucao.java       # Fixed Grid, Two-Layer ou direto
+├── banco/
+│   └── RepositorioEspacial.java      # Extração, DDL, carga, joins e medição
+├── resultados/
+│   └── ResultadoBenchmark.java      # Resultado retornado ao runner
+├── algoritmos/
+│   ├── FixedGridPartitioner.java
+│   └── TwoLayerPartitioner.java
+├── SpatialPartitioner.java
+├── ClasseTwoLayer.java
+├── ParticaoMetadata.java
+├── ParticaoResult.java
+└── ResultadoParticionamento.java
+```
+
+Os modelos e interfaces de particionamento permanecem no pacote `benchmark`. Não há dependências nem arquivos de testes automatizados.
+
+## Criar um cenário ou runner
+
+Para uma combinação nova de tabelas na interface atual, acrescente um `CenarioTeste` a `CenariosCuritiba.listar()`. Para outra base, crie um catálogo com seus `DatasetEspacial`. Schema e tabela são campos separados; não coloque `schema.tabela` no campo `tabela`.
+
+Um runner próprio deve configurar o experimento e chamar o executor. Exemplo em `src/main/java/benchmark/runners/MeuExperimentoRunner.java`:
+
+```java
+package benchmark.runners;
+
+import benchmark.CenarioTeste;
+import benchmark.configuracao.ConfiguracaoBanco;
+import benchmark.configuracao.DatasetEspacial;
+import benchmark.execucao.EstrategiaExecucao;
+import benchmark.execucao.ExecutorBenchmark;
+
+public class MeuExperimentoRunner {
+    public static void main(String[] args) throws Exception {
+        var ruas = new DatasetEspacial(
+                "public", "eixo_rua", "ogc_fid", "wkb_geometry", "MultiLineString", 31982);
+        var quadras = new DatasetEspacial(
+                "public", "arruamento_quadras", "ogc_fid", "wkb_geometry", "MultiPolygon", 31982);
+        var cenario = new CenarioTeste("Comparação de estratégias", ruas, quadras);
+        var executor = new ExecutorBenchmark(ConfiguracaoBanco.doAmbiente());
+
+        for (var estrategia : EstrategiaExecucao.values()) {
+            var resultado = executor.executar(cenario, estrategia, 10);
+            System.out.printf("%s: %d pares, %.3f ms%n",
+                    resultado.estrategia(), resultado.intersecoes(), resultado.tempoJoinMs());
+        }
+    }
+}
+```
 
 ```bash
-mvn exec:java -Dexec.mainClass="benchmark.CenarioTesteRunner"
+mvn compile exec:java -Dexec.mainClass="benchmark.runners.MeuExperimentoRunner"
 ```
 
-### Cenários disponíveis
+O exemplo é um modelo para criar o arquivo, não uma classe já incluída. Um experimento de resolução pode repetir `executar` com `TWO_LAYER` e diferentes valores do terceiro argumento. O executor abre e fecha uma conexão por execução e retorna dados que o runner pode apresentar ou exportar.
 
-| # | Cenário | Tabela A | Tabela B |
-|---|---|---|---|
-| 1 | Ruas x Quadras | `eixo_rua` | `arruamento_quadras` |
-| 2 | Quadras x Bairros | `arruamento_quadras` | `divisa_de_bairros` |
-| 3 | Ruas x Bairros | `eixo_rua` | `divisa_de_bairros` |
-| 4 | Quadras x Regionais | `arruamento_quadras` | `divisa_de_regionais` |
+`DatasetEspacial` aceita saídas `MultiPoint`, `MultiLineString`, `MultiPolygon` e `Geometry`, com IDs inteiros e geometrias 2D. Os dois datasets devem usar o mesmo SRID. Na extração para particionamento, um SRID diferente do configurado é rejeitado; não há reprojeção automática. O pipeline atual executa `ST_Intersects`; uma operação espacial diferente deve ser implementada no executor/repositório e selecionada pelo novo runner.
 
-> Para adicionar novos cenários, basta criar uma nova instância de `CenarioTeste` no método `criarCenarios()` de `CenarioTesteRunner.java`.
+## Two-Layer: implementação e fidelidade
 
-### Fluxo do cenário
+A referência é [Two-layer Space-oriented Partitioning for Non-point Data](https://github.com/dTsitsigkos/two-layer), de Tsitsigkos et al. ([TKDE, 2024](https://doi.org/10.1109/TKDE.2023.3297975)). A implementação Java adapta a distribuição de `partition.h` e as nove combinações de classes do join de `two_layer.h`.
 
-1. Seleciona o cenário via menu interativo
-2. Aplica customização das tabelas (se definidas via `TABELA_A`/`TABELA_B` ou `-Dtabela.a`/`-Dtabela.b`)
-3. Seleciona o algoritmo de particionamento
-4. Extrai os dados das duas tabelas do cenário
-5. Executa o particionamento espacial
-6. Cria tabelas particionadas genéricas (`tabela_a_particionada`, `tabela_b_particionada`)
-7. Insere os dados e executa o Spatial Join automaticamente
-8. Exibe o resultado: número de interseções e tempo de execução
+1. **Primeira camada:** grade uniforme comum às duas entradas. Cada MBR (retângulo envolvente) é replicado nas células cobertas; a geometria completa é preservada em cada cópia.
+2. **Segunda camada:** cada cópia recebe uma classe relativa à célula inicial do MBR: **A** na célula inicial; **B** na mesma coluna, acima; **C** na mesma linha, à direita; **D** acima e à direita.
+3. **Join:** por célula, são permitidas apenas `A–A`, `A–B`, `A–C`, `A–D`, `B–A`, `B–C`, `C–A`, `C–B` e `D–A`. A regra evita pares duplicados entre células. Não se deve juntar as cópias usando apenas igualdade de `id_particao`.
 
-> ⚠️ As tabelas `tabela_a_particionada` e `tabela_b_particionada` são recriadas a cada execução do cenário.
+As quatro classes existem em **cada célula**; não são quatro partições finais. As tabelas de saída agora incluem `classe CHAR(1)`. As cópias mantêm o mesmo ID de origem; portanto, `COUNT(*)` da tabela particionada mede cópias, não objetos originais.
 
----
+### Adaptação ao PostGIS
 
-## Estrutura do Projeto
+O particionamento e a seleção dos pares de classes seguem o método original. O executor C++ com plane sweep e suas otimizações de memória/comparações não foram portados: a execução fica com o PostgreSQL, e `ST_Intersects` refina os candidatos usando as geometrias completas. O original opera sobre MBRs; tempos e contagens de MBRs não devem ser comparados diretamente aos resultados exatos do PostGIS.
 
-```
-src/main/java/benchmark/
-├── BenchmarkRunner.java            # Classe principal (pipeline completo)
-├── CenarioTeste.java               # Modelo de cenário de teste
-├── CenarioTesteRunner.java         # Runner dos cenários de teste
-├── ParticaoMetadata.java           # Metadados de cada célula da grade
-├── ParticaoResult.java             # Resultado do particionamento por geometria
-├── ResultadoParticionamento.java   # Agregador de resultados
-├── SpatialPartitioner.java         # Interface dos algoritmos
-└── algoritmos/
-    ├── FixedGridPartitioner.java   # Algoritmo Fixed Grid
-    └── TwoLayerPartitioner.java    # Algoritmo Two-Layer SOP
-```
+A grade tem domínio quadrado baseado no maior eixo do envelope conjunto, equivalente à normalização espacial da referência, mas conserva as coordenadas no SRID original. Fronteiras internas pertencem à célula à direita/acima, inclusive para o extremo final do MBR; o extremo global pertence à última célula. A implementação usa os mesmos limites de grade para classificar os dois extremos, sem o `EPS` numérico do C++. Casos extremamente próximos de fronteiras podem ter atribuições diferentes das do C++.
 
----
+Geometrias `EMPTY` não geram cópias porque não participam do join de interseção. Duas entradas vazias geram zero células. Pontos coincidentes recebem domínio de lado 1; conjuntos alinhados em um eixo usam a extensão do outro. WKT nulo, coordenadas XY não finitas, resolução não representável e geometrias fora de um molde fornecido são rejeitados. As entradas devem usar geometrias 2D válidas no SRID configurado nos datasets; os cenários de Curitiba usam **31982**.
 
-## Licença
+A recriação e a carga ocorrem na mesma transação. Após a carga, os runners executam `ANALYZE`. O Fixed Grid mantém sua grade 2 × 2 e usa deduplicação por pares de IDs, sem a segunda camada do Two-Layer.
 
-Projeto acadêmico (TCC) — UFPR.
+
+## Contexto acadêmico
+
+Projeto de TCC — UFPR.

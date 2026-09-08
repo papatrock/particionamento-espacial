@@ -1,5 +1,6 @@
 package benchmark.algoritmos;
 
+import benchmark.algoritmos.TwoLayerPartitioner.ClasseTwoLayer;
 import benchmark.ParticaoMetadata;
 import benchmark.ParticaoResult;
 import benchmark.ResultadoParticionamento;
@@ -7,92 +8,99 @@ import benchmark.SpatialPartitioner;
 import org.locationtech.jts.geom.Envelope;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryFactory;
-import org.locationtech.jts.geom.Point;
 import org.locationtech.jts.io.WKTReader;
 
 import java.util.ArrayList;
 import java.util.List;
 
+/** Grade fixa 2 × 2 com replicação por MBR. O join elimina pares de IDs duplicados. */
 public class FixedGridPartitioner implements SpatialPartitioner {
-    @Override
-    public ResultadoParticionamento processar(List<String> wkts) throws Exception {
-        List<ParticaoResult> resultados = new ArrayList<>();
-        List<ParticaoMetadata> metadados = new ArrayList<>();
-
+    public List<ParticaoMetadata> criarGrade(List<String> a, List<String> b) throws Exception {
+        Envelope dominio = new Envelope();
         WKTReader reader = new WKTReader();
-        GeometryFactory gf = new GeometryFactory();
-
-        // 1. Descobrir a "Caixa Global" (MBR) que envolve todos os dados
-        Envelope globalEnv = new Envelope();
-        List<Geometry> geometrias = new ArrayList<>();
-
-        for (String wkt : wkts) {
-            Geometry geom = reader.read(wkt);
-            geometrias.add(geom);
-            globalEnv.expandToInclude(geom.getEnvelopeInternal());
+        for (List<String> entrada : List.of(a, b)) {
+            for (String wkt : entrada) dominio.expandToInclude(ler(reader, wkt).getEnvelopeInternal());
         }
-
-        // calcular o centro matemático exato baseado nos limites dos dados reais
-        double midX = (globalEnv.getMinX() + globalEnv.getMaxX()) / 2.0;
-        double midY = (globalEnv.getMinY() + globalEnv.getMaxY()) / 2.0;
-
-        // 3. Gerar as 4 fronteiras dinamicamente usando a JTS
-        // O método toGeometry transforma uma caixa (Envelope) em um Polígono WKT
-        Geometry q1 = gf.toGeometry(new Envelope(globalEnv.getMinX(), midX,globalEnv.getMinY(), midY)); // baixo esquerda
-        Geometry q2 = gf.toGeometry(new Envelope(midX, globalEnv.getMaxX(), globalEnv.getMinY(), midY)); //baixo direita
-        Geometry q3 = gf.toGeometry(new Envelope(globalEnv.getMinX(), midX, midY, globalEnv.getMaxY())); // cima esquerda
-        Geometry q4 = gf.toGeometry(new Envelope(midX, globalEnv.getMaxX(), midY, globalEnv.getMaxY())); // cima direita
-
-        metadados.add(new ParticaoMetadata(1, q1.toText()));
-        metadados.add(new ParticaoMetadata(2, q2.toText()));
-        metadados.add(new ParticaoMetadata(3, q3.toText()));
-        metadados.add(new ParticaoMetadata(4, q4.toText()));
-
-        // 4. Classificar os polígonos usando o centro dinâmico que acabamos de calcular
-        for (int i = 0; i < wkts.size(); i++) {
-            Geometry geom = geometrias.get(i);
-            Point centroid = geom.getCentroid();
-            String wkt = wkts.get(i);
-
-            int idParticao = 0;
-            if (centroid.getX() >= midX && centroid.getY() >= midY) idParticao = 1;
-            else if (centroid.getX() < midX && centroid.getY() >= midY) idParticao = 2;
-            else if (centroid.getX() < midX && centroid.getY() < midY) idParticao = 3;
-            else if (centroid.getX() >= midX && centroid.getY() < midY) idParticao = 4;
-
-            resultados.add(new ParticaoResult(wkt, idParticao));
+        if (dominio.isNull()) return List.of();
+        double[] xs = limites(dominio.getMinX(), dominio.getMaxX());
+        double[] ys = limites(dominio.getMinY(), dominio.getMaxY());
+        List<ParticaoMetadata> grade = new ArrayList<>();
+        GeometryFactory factory = new GeometryFactory();
+        for (int y = 0; y < 2; y++) for (int x = 0; x < 2; x++) {
+            grade.add(new ParticaoMetadata(y * 2 + x + 1,
+                    factory.toGeometry(new Envelope(xs[x], xs[x + 1], ys[y], ys[y + 1])).toText()));
         }
-
-        return new ResultadoParticionamento(resultados, metadados);
+        return List.copyOf(grade);
     }
 
-    public ResultadoParticionamento processar(List<String> wkts, List<ParticaoMetadata> molde) throws Exception {
-        List<ParticaoResult> resultados = new ArrayList<>();
-        WKTReader reader = new WKTReader();
-
-        // 1. Converte o WKT do molde de volta para Polígonos JTS
-        List<Geometry> gavetas = new ArrayList<>();
-        for (ParticaoMetadata meta : molde) {
-            gavetas.add(reader.read(meta.getWktFronteira()));
+    private static double[] limites(double min, double max) {
+        if (min == max) max = min + 1;
+        double meio = min / 2 + max / 2;
+        if (!Double.isFinite(max) || !(min < meio && meio < max)) {
+            throw new IllegalArgumentException("Extensão da grade não representável em double");
         }
+        return new double[]{min, meio, max};
+    }
 
-        // 2. Classifica cada Rua nas gavetas existentes
-        for (String wkt : wkts) {
-            Geometry geom = reader.read(wkt);
-            Point centroid = geom.getCentroid();
+    @Override
+    public ResultadoParticionamento processar(List<String> wkts) throws Exception {
+        return processar(wkts, criarGrade(wkts, List.of()));
+    }
 
-            int idParticao = 1; // Fallback caso caia na linha exata
-
-            for (int i = 0; i < gavetas.size(); i++) {
-                if (gavetas.get(i).contains(centroid)) {
-                    idParticao = molde.get(i).getIdParticao();
-                    break;
+    @Override
+    public ResultadoParticionamento processar(List<String> wkts, List<ParticaoMetadata> molde) throws Exception {
+        if (!molde.isEmpty() && molde.size() != 4) {
+            throw new IllegalArgumentException("Fixed Grid requer quatro células");
+        }
+        WKTReader reader = new WKTReader();
+        List<Envelope> cells = new ArrayList<>();
+        Envelope dominio = new Envelope();
+        for (int i = 0; i < molde.size(); i++) {
+            Geometry cell = ler(reader, molde.get(i).getWktFronteira());
+            Envelope env = cell.getEnvelopeInternal();
+            if (molde.get(i).getIdParticao() != i + 1 || env.getWidth() <= 0 || env.getHeight() <= 0
+                    || !cell.equalsTopo(cell.getFactory().toGeometry(env))) {
+                throw new IllegalArgumentException("Molde inválido para Fixed Grid");
+            }
+            cells.add(env);
+            dominio.expandToInclude(env);
+        }
+        if (!cells.isEmpty()) {
+            double[] xs = limites(dominio.getMinX(), dominio.getMaxX());
+            double[] ys = limites(dominio.getMinY(), dominio.getMaxY());
+            for (int y = 0; y < 2; y++) for (int x = 0; x < 2; x++) {
+                if (!cells.get(y * 2 + x).equals(new Envelope(xs[x], xs[x + 1], ys[y], ys[y + 1]))) {
+                    throw new IllegalArgumentException("Molde deve ser uma grade 2 × 2 ordenada por linha");
                 }
             }
-            resultados.add(new ParticaoResult(wkt, idParticao));
         }
+        List<ParticaoResult> resultados = new ArrayList<>();
+        for (int origem = 0; origem < wkts.size(); origem++) {
+            Geometry geom = ler(reader, wkts.get(origem));
+            if (geom.isEmpty()) continue;
+            Envelope mbr = geom.getEnvelopeInternal();
+            if (!dominio.contains(mbr)) {
+                throw new IllegalArgumentException("Geometria fora da grade; inclua ambas as entradas no domínio");
+            }
+            for (int i = 0; i < cells.size(); i++) {
+                // Inclui contatos nas bordas. Duplicações são removidas no join por IDs.
+                if (cells.get(i).intersects(mbr)) {
+                    resultados.add(new ParticaoResult(wkts.get(origem), molde.get(i).getIdParticao(),
+                            origem, ClasseTwoLayer.A));
+                }
+            }
+        }
+        return new ResultadoParticionamento(resultados, List.copyOf(molde));
+    }
 
-        // Retorna os dados particionados (repassando o molde original)
-        return new ResultadoParticionamento(resultados, molde);
+    private static Geometry ler(WKTReader reader, String wkt) throws Exception {
+        if (wkt == null) throw new IllegalArgumentException("WKT nulo");
+        Geometry geom = reader.read(wkt);
+        for (var c : geom.getCoordinates()) {
+            if (!Double.isFinite(c.x) || !Double.isFinite(c.y)) {
+                throw new IllegalArgumentException("Coordenada não finita");
+            }
+        }
+        return geom;
     }
 }
