@@ -1,4 +1,4 @@
-r# Benchmark Espacial — Java e PostgreSQL/PostGIS
+# Benchmark Espacial — Java e PostgreSQL/PostGIS
 
 Executa joins de interseção espacial em três modos: Fixed Grid, Two-Layer e sem particionamento. Os runners selecionam os experimentos; um executor compartilhado coordena a extração, o particionamento, a carga e a consulta.
 
