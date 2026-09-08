@@ -1,4 +1,4 @@
-# Benchmark Espacial — Java e PostgreSQL/PostGIS
+r# Benchmark Espacial — Java e PostgreSQL/PostGIS
 
 Executa joins de interseção espacial em três modos: Fixed Grid, Two-Layer e sem particionamento. Os runners selecionam os experimentos; um executor compartilhado coordena a extração, o particionamento, a carga e a consulta.
 
@@ -184,7 +184,7 @@ O exemplo é um modelo para criar o arquivo, não uma classe já incluída. Um e
 
 A referência é [Two-layer Space-oriented Partitioning for Non-point Data](https://github.com/dTsitsigkos/two-layer), de Tsitsigkos et al. ([TKDE, 2024](https://doi.org/10.1109/TKDE.2023.3297975)). A implementação Java adapta a distribuição de `partition.h` e as nove combinações de classes do join de `two_layer.h`.
 
-1. **Primeira camada:** grade uniforme comum às duas entradas. Cada MBR (retângulo envolvente) é replicado nas células cobertas; a geometria completa é preservada em cada cópia.
+1. **Primeira camada:** grade uniforme comum às duas entradas. Cada MBR é replicado nas células cobertas; a geometria completa é preservada em cada cópia.
 2. **Segunda camada:** cada cópia recebe uma classe relativa à célula inicial do MBR: **A** na célula inicial; **B** na mesma coluna, acima; **C** na mesma linha, à direita; **D** acima e à direita.
 3. **Join:** por célula, são permitidas apenas `A–A`, `A–B`, `A–C`, `A–D`, `B–A`, `B–C`, `C–A`, `C–B` e `D–A`. A regra evita pares duplicados entre células. Não se deve juntar as cópias usando apenas igualdade de `id_particao`.
 
