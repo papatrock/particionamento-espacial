@@ -1,6 +1,7 @@
 package benchmark;
 
 import benchmark.cenarios.CenariosBrasil;
+import benchmark.algoritmos.SortTileRecursive;
 import benchmark.cenarios.CenariosCuritiba;
 import benchmark.configuracao.ConfiguracaoBanco;
 import benchmark.execucao.EstrategiaExecucao;
@@ -18,7 +19,7 @@ public class CenarioTesteRunner {
         cenarios.addAll(CenariosBrasil.listar());
 
         Scanner scanner = new Scanner(System.in);
-        
+
         System.out.println("\n=== CENÁRIOS DE TESTE ===");
 
         for (int i = 0; i < cenarios.size(); i++) {
@@ -34,15 +35,21 @@ public class CenarioTesteRunner {
         System.out.println("\nCenário selecionado: " + cenario);
 
         var estrategias = EstrategiaExecucao.values();
-        System.out.println("\nSelecione o modo de execução:");
+
+        System.out.println("\nSelecione o algoritmo de particionamento:");
         for (int i = 0; i < estrategias.length; i++) {
             System.out.println((i + 1) + " - " + estrategias[i]);
         }
         var estrategia = estrategias[escolher(scanner, "Opção: ", estrategias.length) - 1];
         int celulas = estrategia == EstrategiaExecucao.TWO_LAYER
                 ? Integer.parseInt(System.getProperty("twoLayer.celulasPorEixo", "10")) : 10;
+
         var executor = new ExecutorBenchmark(ConfiguracaoBanco.doAmbiente(), System.out::println);
-        exibir(executor.executar(cenario, estrategia, celulas));
+
+        int capacidadeStr = estrategia == EstrategiaExecucao.STR
+                ? Integer.parseInt(System.getProperty("str.capacidade", "" + SortTileRecursive.CAPACIDADE_PADRAO))
+                : SortTileRecursive.CAPACIDADE_PADRAO;
+        exibir(executor.executar(cenario, estrategia, celulas, capacidadeStr));
     }
 
     private static int escolher(Scanner scanner, String prompt, int limite) {

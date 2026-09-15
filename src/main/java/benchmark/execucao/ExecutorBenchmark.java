@@ -2,6 +2,7 @@ package benchmark.execucao;
 
 import benchmark.*;
 import benchmark.algoritmos.FixedGridPartitioner;
+import benchmark.algoritmos.SortTileRecursive;
 import benchmark.algoritmos.TwoLayerPartitioner;
 import benchmark.banco.RepositorioEspacial;
 import benchmark.configuracao.ConfiguracaoBanco;
@@ -24,6 +25,11 @@ public final class ExecutorBenchmark {
 
     public ResultadoBenchmark executar(CenarioTeste cenario, EstrategiaExecucao estrategia,
                                        int celulasPorEixo) throws Exception {
+        return executar(cenario, estrategia, celulasPorEixo, SortTileRecursive.CAPACIDADE_PADRAO);
+    }
+
+    public ResultadoBenchmark executar(CenarioTeste cenario, EstrategiaExecucao estrategia,
+                                       int celulasPorEixo, int capacidadeStr) throws Exception {
         try (Connection conn = banco.abrirConexao()) {
             var repositorio = new RepositorioEspacial(conn);
             if (estrategia == EstrategiaExecucao.SEM_PARTICIONAMENTO) {
@@ -44,6 +50,11 @@ public final class ExecutorBenchmark {
                 var grade = twoLayer.criarGrade(a.wkts(), b.wkts());
                 resA = twoLayer.processar(a.wkts(), grade);
                 resB = twoLayer.processar(b.wkts(), grade);
+            } else if (estrategia == EstrategiaExecucao.STR) {
+                var str = new SortTileRecursive(capacidadeStr);
+                var molde = str.criarGrade(a.wkts(), b.wkts());
+                resA = str.processar(a.wkts(), molde);
+                resB = str.processar(b.wkts(), molde);
             } else {
                 var fixedGrid = new FixedGridPartitioner();
                 var grade = fixedGrid.criarGrade(a.wkts(), b.wkts());
