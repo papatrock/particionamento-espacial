@@ -10,6 +10,7 @@ import java.util.List;
 
 /** Todo o SQL do pipeline. A conexão e sua duração pertencem ao executor. */
 public final class RepositorioEspacial {
+    private static final boolean DEBUG = Boolean.getBoolean("str.debug");
     private static final String SAIDA_A = "public.tabela_a_particionada";
     private static final String SAIDA_B = "public.tabela_b_particionada";
     private static final String GRADE = "public.grade_metadados";
@@ -51,13 +52,15 @@ public final class RepositorioEspacial {
             recriar(cenario, resA.getGrades());
             salvar(SAIDA_A, cenario.datasetA().srid(), a.ids(), resA.getDados());
             salvar(SAIDA_B, cenario.datasetB().srid(), b.ids(), resB.getDados());
-            try (PreparedStatement stmt = conn.prepareStatement("INSERT INTO " + GRADE
-                    + " (id_particao, geom) VALUES (?, ST_Multi(ST_GeomFromText(?, ?)))")) {
-                for (ParticaoMetadata meta : resA.getGrades()) {
-                    stmt.setInt(1, meta.getIdParticao());
-                    stmt.setString(2, meta.getWktFronteira());
-                    stmt.setInt(3, cenario.datasetA().srid());
-                    stmt.executeUpdate();
+            if (DEBUG) {
+                try (PreparedStatement stmt = conn.prepareStatement("INSERT INTO " + GRADE
+                        + " (id_particao, geom) VALUES (?, ST_Multi(ST_GeomFromText(?, ?)))")) {
+                    for (ParticaoMetadata meta : resA.getGrades()) {
+                        stmt.setInt(1, meta.getIdParticao());
+                        stmt.setString(2, meta.getWktFronteira());
+                        stmt.setInt(3, cenario.datasetA().srid());
+                        stmt.executeUpdate();
+                    }
                 }
             }
             conn.commit();
@@ -83,8 +86,11 @@ public final class RepositorioEspacial {
             stmt.execute("DROP TABLE IF EXISTS " + GRADE + " CASCADE");
             criarMae(stmt, SAIDA_A, cenario.datasetA());
             criarMae(stmt, SAIDA_B, cenario.datasetB());
-            stmt.execute("CREATE TABLE " + GRADE + " (id_particao INTEGER PRIMARY KEY, geom geometry(MultiPolygon, "
-                    + cenario.datasetA().srid() + "))");
+            if (DEBUG) {
+                // STR pode gerar MBRs degenerados (pontos ou linhas).
+                stmt.execute("CREATE TABLE " + GRADE + " (id_particao INTEGER PRIMARY KEY, geom geometry(Geometry, "
+                        + cenario.datasetA().srid() + "))");
+            }
             for (ParticaoMetadata grade : grades) {
                 int id = grade.getIdParticao();
                 stmt.execute("CREATE TABLE public.tabela_a_p" + id + " PARTITION OF " + SAIDA_A + " FOR VALUES IN (" + id + ")");
@@ -129,7 +135,7 @@ public final class RepositorioEspacial {
     public MedicaoJoin joinParticionado(EstrategiaExecucao estrategia) throws SQLException {
         analisar(SAIDA_A, SAIDA_B);
         try (Statement stmt = conn.createStatement()) { stmt.execute("SET enable_partitionwise_join = on"); }
-        if (estrategia == EstrategiaExecucao.FIXED_GRID) {
+        if (estrategia == EstrategiaExecucao.FIXED_GRID || estrategia == EstrategiaExecucao.STR) {
             return medir("SELECT COUNT(*) FROM (SELECT DISTINCT a.id AS id_a, b.id AS id_b FROM "
                     + SAIDA_A + " a JOIN " + SAIDA_B
                     + " b ON a.id_particao = b.id_particao AND ST_Intersects(a.geom, b.geom)) pares");

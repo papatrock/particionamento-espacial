@@ -1,6 +1,6 @@
 # Benchmark Espacial — Java e PostgreSQL/PostGIS
 
-Executa joins de interseção espacial em três modos: Fixed Grid, Two-Layer e sem particionamento. Os runners selecionam os experimentos; um executor compartilhado coordena a extração, o particionamento, a carga e a consulta.
+Executa joins de interseção espacial em quatro modos: Fixed Grid, Two-Layer, STR e sem particionamento. Os runners selecionam os experimentos; um executor compartilhado coordena a extração, o particionamento, a carga e a consulta.
 
 ## Pré-requisitos
 
@@ -44,6 +44,8 @@ Os dumps contêm comandos de remoção e recriação das respectivas tabelas. Ao
 | `TABELA_A` | `tabela.a` | Tabela A do cenário escolhido |
 | `TABELA_B` | `tabela.b` | Tabela B do cenário escolhido |
 | — | `twoLayer.celulasPorEixo` | `10` |
+| — | `str.capacidade` | `1000` |
+| — | `str.debug` | `false` |
 
 Propriedades `-D` têm prioridade sobre variáveis de ambiente. As substituições de tabela preservam schema, colunas, tipo e SRID do cenário. Para alterar esses atributos, configure um `DatasetEspacial` em um catálogo ou runner próprio.
 
@@ -66,19 +68,34 @@ Primeiro escolha o cenário; depois, o modo:
 1 - Fixed Grid
 2 - Two-Layer SOP
 3 - Sem particionamento
+4 - STR DOP
 ```
 
 O programa exibe cenário, modo, número de partições, interseções encontradas e tempo do join. Entradas inválidas no menu pedem uma nova seleção.
 
 `Main` é um atalho para o mesmo menu, mantido para funcionar com configurações antigas da IDE. Ele não possui mais um pipeline próprio. Use `TABELA_A`/`TABELA_B` em lugar das antigas opções `TABELA_QUADRAS`/`TABELA_RUAS`.
 
+### Modo debug
+
+Para ativar as mensagens de diagnóstico do STR e a criação e carga da tabela `public.grade_metadados`, execute:
+
+```bash
+mvn compile exec:java -Dexec.mainClass="benchmark.CenarioTesteRunner" -Dstr.debug=true
+```
+
+Na IDE, adicione `-Dstr.debug=true` às opções da JVM (VM options). O botão Debug da IDE, sozinho, não ativa essa propriedade. Não é necessário recompilar para alternar o modo; reinicie a execução com o valor desejado.
+
+Por padrão (`str.debug=false` ou propriedade ausente), os detalhes de N, capacidade, partições e faixas do STR não são impressos, e a tabela de metadados não é criada nem carregada. A propriedade também controla essa tabela nos modos Fixed Grid e Two-Layer. As fronteiras em memória continuam sendo calculadas para o particionamento.
+
+Em toda execução particionada, uma `grade_metadados` anterior é removida na transação de substituição das saídas, mesmo com debug desativado, para evitar a visualização de fronteiras antigas. O modo sem particionamento não altera essa tabela.
+
 ## Fluxo e resultados no banco
 
-Nas opções 1 e 2, o executor extrai as duas entradas, aplica o particionador e substitui as saídas em uma transação, com rollback se a carga falhar. Todos os runners que usam esse executor escrevem nas mesmas tabelas do schema `public`:
+Nas opções 1, 2 e 4, o executor extrai as duas entradas, aplica o particionador e substitui as saídas em uma transação, com rollback se a carga falhar. Todos os runners que usam esse executor escrevem nas mesmas tabelas do schema `public`:
 
 - `tabela_a_particionada` e `tabela_b_particionada`: tabelas-mãe com `id`, `id_particao`, `classe` e `geom`.
 - `tabela_a_p1…pN` e `tabela_b_p1…pN`: partições filhas.
-- `grade_metadados`: ID e geometria de cada célula.
+- `grade_metadados`: ID e geometria de cada célula, criada e carregada somente com `-Dstr.debug=true`.
 
 **Uma execução particionada substitui a anterior**, inclusive as partições filhas, usando `DROP TABLE ... CASCADE`. Não há histórico automático nem suporte a execuções concorrentes sobre essas mesmas saídas. O Two-Layer com 10 células por eixo cria 100 partições por tabela; o Fixed Grid cria quatro.
 
@@ -100,7 +117,7 @@ JOIN public.tabela_b_particionada b
  AND ST_Intersects(a.geom, b.geom);
 ```
 
-Para consultar pares do Fixed Grid, use `SELECT DISTINCT a.id, b.id` com igualdade de `id_particao` e `ST_Intersects(a.geom, b.geom)`, sem o filtro de classes.
+Para consultar pares do Fixed Grid ou STR, use `SELECT DISTINCT a.id, b.id` com igualdade de `id_particao` e `ST_Intersects(a.geom, b.geom)`, sem o filtro de classes.
 
 ### Medição
 
@@ -122,14 +139,15 @@ src/main/java/benchmark/
 │   └── CenariosCuritiba.java         # Catálogo reutilizável
 ├── execucao/
 │   ├── ExecutorBenchmark.java        # Pipeline compartilhado
-│   └── EstrategiaExecucao.java       # Fixed Grid, Two-Layer ou direto
+│   └── EstrategiaExecucao.java       # Fixed Grid, Two-Layer, STR ou direto
 ├── banco/
 │   └── RepositorioEspacial.java      # Extração, DDL, carga, joins e medição
 ├── resultados/
 │   └── ResultadoBenchmark.java      # Resultado retornado ao runner
 ├── algoritmos/
 │   ├── FixedGridPartitioner.java
-│   └── TwoLayerPartitioner.java
+│   ├── TwoLayerPartitioner.java
+│   └── SortTileRecursive.java
 ├── SpatialPartitioner.java
 ├── ClasseTwoLayer.java
 ├── ParticaoMetadata.java
@@ -137,7 +155,7 @@ src/main/java/benchmark/
 └── ResultadoParticionamento.java
 ```
 
-Os modelos e interfaces de particionamento permanecem no pacote `benchmark`. Não há dependências nem arquivos de testes automatizados.
+Os modelos e interfaces de particionamento permanecem no pacote `benchmark`. Os testes do STR usam JUnit 5; execute `mvn test`.
 
 ## Criar um cenário ou runner
 
@@ -200,3 +218,34 @@ Geometrias `EMPTY` não geram cópias porque não participam do join de interse�
 
 A recriação e a carga ocorrem na mesma transação. Após a carga, os runners executam `ANALYZE`. O Fixed Grid mantém sua grade 2 × 2 e usa deduplicação por pares de IDs, sem a segunda camada do Two-Layer.
 
+
+## STR: implementação e uso
+
+O `SortTileRecursive` implementa **Data-Oriented Partitioning (DOP)** com base em [Leutenegger, Edgington e Lopez (1997)](https://doi.org/10.1109/ICDE.1997.582015) e na adaptação para particionamento espacial de [Aji, Vo e Wang, seção 4.2](https://arxiv.org/abs/1509.00910).
+
+Para `N` geometrias não vazias e capacidade `b > 0`, calcula `P = ceil(N/b)` e `S = ceil(sqrt(P))`. Ordena pelo centro do MBR no eixo X, forma faixas de até `S*b` objetos, ordena cada faixa pelo centro do MBR em Y e agrupa em blocos de até `b`. Cada fronteira é o MBR completo do grupo. A última faixa e o último grupo podem ser incompletos. São geradas exatamente `P` partições, com IDs a partir de 1. A construção custa `O(N log N)` e usa `O(N)` memória.
+
+A implementação para no nível folha: a recursão para criar os níveis superiores da R-tree não faz parte deste particionador. As fronteiras podem se sobrepor ou deixar lacunas. Pontos coincidentes e objetos alinhados podem gerar fronteiras pontuais ou lineares; `grade_metadados.geom` aceita esses tipos, além de polígonos.
+
+No benchmark, o molde é construído sobre **A e B juntas**, considerando todos os objetos não vazios. Depois, cada entrada é associada a todos os MBRs que seu envelope intersecta, incluindo contatos nas bordas. Essa associação usa um índice espacial JTS e preserva o WKT e o índice de origem. O join usa `DISTINCT` nos pares de IDs, como no Fixed Grid. A coluna `classe` recebe A por compatibilidade com o modelo existente.
+
+**`b` limita os grupos de construção, antes da replicação**; a ocupação final pode ultrapassá-lo. `N` considera as duas relações juntas, e a capacidade não representa um limite separado para cada tabela. O padrão 1000 é configurável, não um valor recomendado pelos artigos.
+
+```bash
+mvn compile exec:java -Dstr.capacidade=500
+```
+
+Escolha a opção `4 - STR DOP`. Para uso direto:
+
+```java
+var str = new SortTileRecursive(500);
+var molde = str.criarGrade(wktsA, wktsB);
+var resA = str.processar(wktsA, molde);
+var resB = str.processar(wktsB, molde);
+```
+
+Para apenas uma entrada, use `str.processar(wkts)`. No executor programático, `executar(cenario, EstrategiaExecucao.STR, 10, 500)` define a capacidade no quarto argumento; o terceiro continua reservado ao Two-Layer. A chamada com três argumentos usa a capacidade padrão.
+
+Geometrias `EMPTY` não participam; entradas sem objetos geram molde vazio. WKT nulo, XY não finito, capacidade inválida, fronteiras que não sejam MBRs e IDs de partição não positivos ou repetidos são rejeitados. Um objeto sem interseção com nenhuma fronteira também é rejeitado. Essa validação não comprova cobertura completa de um molde externo: para preservar o join, gere o molde com ambas as entradas completas, como faz o executor. Não se amplia automaticamente um molde amostrado.
+
+Os testes cobrem ordenação, MBR completo, última faixa incompleta, pontos e linhas, replicação nas bordas, entradas inválidas e equivalência dos pares de um join direto com os de um join particionado em dados sintéticos usando JTS. A validação do pipeline SQL com PostGIS deve ser feita no ambiente do benchmark.
