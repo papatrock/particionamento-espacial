@@ -2,6 +2,7 @@ package benchmark;
 
 import benchmark.cenarios.CenariosBrasil;
 import benchmark.algoritmos.SortTileRecursive;
+import benchmark.algoritmos.HilbertCurvePartitioner;
 import benchmark.cenarios.CenariosCuritiba;
 import benchmark.configuracao.ConfiguracaoBanco;
 import benchmark.execucao.EstrategiaExecucao;
@@ -34,7 +35,8 @@ public class CenarioTesteRunner {
                 cenario.datasetA().comTabela(tabelaA), cenario.datasetB().comTabela(tabelaB));
         System.out.println("\nCenário selecionado: " + cenario);
 
-        var estrategias = EstrategiaExecucao.values();
+        var estrategias = java.util.Arrays.stream(EstrategiaExecucao.values())
+                .filter(e -> e != EstrategiaExecucao.FIXED_GRID).toArray(EstrategiaExecucao[]::new);
 
         System.out.println("\nSelecione o algoritmo de particionamento:");
         for (int i = 0; i < estrategias.length; i++) {
@@ -49,7 +51,13 @@ public class CenarioTesteRunner {
         int capacidadeStr = estrategia == EstrategiaExecucao.STR
                 ? Integer.parseInt(System.getProperty("str.capacidade", "" + SortTileRecursive.CAPACIDADE_PADRAO))
                 : SortTileRecursive.CAPACIDADE_PADRAO;
-        exibir(executor.executar(cenario, estrategia, celulas, capacidadeStr));
+        int capacidadeHilbert = estrategia == EstrategiaExecucao.HILBERT
+                ? Integer.parseInt(System.getProperty("hilbert.capacidade", "" + HilbertCurvePartitioner.CAPACIDADE_PADRAO))
+                : HilbertCurvePartitioner.CAPACIDADE_PADRAO;
+        int bitsHilbert = estrategia == EstrategiaExecucao.HILBERT
+                ? Integer.parseInt(System.getProperty("hilbert.bits", "" + HilbertCurvePartitioner.BITS_PADRAO))
+                : HilbertCurvePartitioner.BITS_PADRAO;
+        exibir(executor.executar(cenario, estrategia, celulas, capacidadeStr, capacidadeHilbert, bitsHilbert));
     }
 
     private static int escolher(Scanner scanner, String prompt, int limite) {
