@@ -135,7 +135,8 @@ public final class RepositorioEspacial {
     public MedicaoJoin joinParticionado(EstrategiaExecucao estrategia) throws SQLException {
         analisar(SAIDA_A, SAIDA_B);
         try (Statement stmt = conn.createStatement()) { stmt.execute("SET enable_partitionwise_join = on"); }
-        if (estrategia == EstrategiaExecucao.FIXED_GRID || estrategia == EstrategiaExecucao.STR) {
+        if (estrategia == EstrategiaExecucao.FIXED_GRID || estrategia == EstrategiaExecucao.STR
+                || estrategia == EstrategiaExecucao.HILBERT) {
             return medir("SELECT COUNT(*) FROM (SELECT DISTINCT a.id AS id_a, b.id AS id_b FROM "
                     + SAIDA_A + " a JOIN " + SAIDA_B
                     + " b ON a.id_particao = b.id_particao AND ST_Intersects(a.geom, b.geom)) pares");
