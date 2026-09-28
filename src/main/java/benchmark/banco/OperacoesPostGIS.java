@@ -9,24 +9,30 @@ import java.util.ArrayList;
 import java.util.List;
 
 /** Todo o SQL do pipeline. A conexão e sua duração pertencem ao executor. */
-public final class RepositorioEspacial {
+public final class OperacoesPostGIS {
     private static final boolean DEBUG = Boolean.getBoolean("str.debug");
     private static final String SAIDA_A = "public.tabela_a_particionada";
     private static final String SAIDA_B = "public.tabela_b_particionada";
     private static final String GRADE = "public.grade_metadados";
     private final Connection conn;
 
-    public RepositorioEspacial(Connection conn) { this.conn = conn; }
+    public OperacoesPostGIS(Connection conn) { this.conn = conn; }
 
     public record DadosEspaciais(List<Integer> ids, List<String> wkts) { }
     public record MedicaoJoin(long intersecoes, double tempoMs) { }
 
     public DadosEspaciais extrair(DatasetEspacial dataset) throws SQLException {
+        return extrair(dataset, false);
+    }
+
+    /** BSP incremental requer ordem reproduzível; os IDs devem ser únicos na relação. */
+    public DadosEspaciais extrair(DatasetEspacial dataset, boolean ordenarPorId) throws SQLException {
         List<Integer> ids = new ArrayList<>();
         List<String> wkts = new ArrayList<>();
         String geom = citar(dataset.colunaGeometria());
         String sql = "SELECT " + citar(dataset.colunaId()) + " AS id, ST_AsText(" + geom
-                + ") AS wkt, ST_SRID(" + geom + ") AS srid FROM " + tabela(dataset);
+                + ") AS wkt, ST_SRID(" + geom + ") AS srid FROM " + tabela(dataset)
+                + (ordenarPorId ? " ORDER BY " + citar(dataset.colunaId()) : "");
         try (Statement stmt = conn.createStatement(); ResultSet rs = stmt.executeQuery(sql)) {
             while (rs.next()) {
                 int id = rs.getInt("id");
@@ -136,7 +142,7 @@ public final class RepositorioEspacial {
         analisar(SAIDA_A, SAIDA_B);
         try (Statement stmt = conn.createStatement()) { stmt.execute("SET enable_partitionwise_join = on"); }
         if (estrategia == EstrategiaExecucao.FIXED_GRID || estrategia == EstrategiaExecucao.STR
-                || estrategia == EstrategiaExecucao.HILBERT) {
+                || estrategia == EstrategiaExecucao.HILBERT || estrategia == EstrategiaExecucao.BSP) {
             return medir("SELECT COUNT(*) FROM (SELECT DISTINCT a.id AS id_a, b.id AS id_b FROM "
                     + SAIDA_A + " a JOIN " + SAIDA_B
                     + " b ON a.id_particao = b.id_particao AND ST_Intersects(a.geom, b.geom)) pares");

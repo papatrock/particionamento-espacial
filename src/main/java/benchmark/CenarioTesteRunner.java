@@ -2,6 +2,7 @@ package benchmark;
 
 import benchmark.cenarios.CenariosBrasil;
 import benchmark.algoritmos.SortTileRecursive;
+import benchmark.algoritmos.BinarySplitPartitioner;
 import benchmark.algoritmos.HilbertCurvePartitioner;
 import benchmark.cenarios.CenariosCuritiba;
 import benchmark.configuracao.ConfiguracaoBanco;
@@ -57,7 +58,10 @@ public class CenarioTesteRunner {
         int bitsHilbert = estrategia == EstrategiaExecucao.HILBERT
                 ? Integer.parseInt(System.getProperty("hilbert.bits", "" + HilbertCurvePartitioner.BITS_PADRAO))
                 : HilbertCurvePartitioner.BITS_PADRAO;
-        exibir(executor.executar(cenario, estrategia, celulas, capacidadeStr, capacidadeHilbert, bitsHilbert));
+        int capacidadeBsp = estrategia == EstrategiaExecucao.BSP
+                ? Integer.parseInt(System.getProperty("bsp.capacidade", "" + BinarySplitPartitioner.CAPACIDADE_PADRAO))
+                : BinarySplitPartitioner.CAPACIDADE_PADRAO;
+        exibir(executor.executar(cenario, estrategia, celulas, capacidadeStr, capacidadeHilbert, bitsHilbert, capacidadeBsp));
     }
 
     private static int escolher(Scanner scanner, String prompt, int limite) {

@@ -1,7 +1,7 @@
 package benchmark.execucao;
 
 public enum EstrategiaExecucao {
-    SEM_PARTICIONAMENTO("Sem particionamento"), FIXED_GRID("Fixed Grid"), TWO_LAYER("Two-Layer SOP"), STR("STR DOP"), HILBERT("Hilbert Curve DOP");
+    SEM_PARTICIONAMENTO("Sem particionamento"), FIXED_GRID("Fixed Grid"), TWO_LAYER("Two-Layer SOP"), STR("STR DOP"), HILBERT("Hilbert Curve DOP"), BSP("Binary Split SOP");
 
     private final String descricao;
     EstrategiaExecucao(String descricao) { this.descricao = descricao; }
