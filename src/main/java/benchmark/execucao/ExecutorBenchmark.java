@@ -2,9 +2,11 @@ package benchmark.execucao;
 
 import benchmark.*;
 import benchmark.algoritmos.FixedGridPartitioner;
+import benchmark.algoritmos.BinarySplitPartitioner;
+import benchmark.algoritmos.HilbertCurvePartitioner;
 import benchmark.algoritmos.SortTileRecursive;
 import benchmark.algoritmos.TwoLayerPartitioner;
-import benchmark.banco.RepositorioEspacial;
+import benchmark.banco.OperacoesPostGIS;
 import benchmark.configuracao.ConfiguracaoBanco;
 import benchmark.resultados.ResultadoBenchmark;
 
@@ -30,8 +32,22 @@ public final class ExecutorBenchmark {
 
     public ResultadoBenchmark executar(CenarioTeste cenario, EstrategiaExecucao estrategia,
                                        int celulasPorEixo, int capacidadeStr) throws Exception {
+        return executar(cenario, estrategia, celulasPorEixo, capacidadeStr,
+                HilbertCurvePartitioner.CAPACIDADE_PADRAO, HilbertCurvePartitioner.BITS_PADRAO);
+    }
+
+    public ResultadoBenchmark executar(CenarioTeste cenario, EstrategiaExecucao estrategia,
+                                       int celulasPorEixo, int capacidadeStr,
+                                       int capacidadeHilbert, int bitsHilbert) throws Exception {
+        return executar(cenario, estrategia, celulasPorEixo, capacidadeStr, capacidadeHilbert,
+                bitsHilbert, BinarySplitPartitioner.CAPACIDADE_PADRAO);
+    }
+
+    public ResultadoBenchmark executar(CenarioTeste cenario, EstrategiaExecucao estrategia,
+                                       int celulasPorEixo, int capacidadeStr,
+                                       int capacidadeHilbert, int bitsHilbert, int capacidadeBsp) throws Exception {
         try (Connection conn = banco.abrirConexao()) {
-            var repositorio = new RepositorioEspacial(conn);
+            var repositorio = new OperacoesPostGIS(conn);
             if (estrategia == EstrategiaExecucao.SEM_PARTICIONAMENTO) {
                 progresso.accept("Executando Spatial Join diretamente nas entradas...");
                 var medicao = repositorio.joinDireto(cenario);
@@ -39,9 +55,9 @@ public final class ExecutorBenchmark {
             }
 
             progresso.accept("Extraindo " + cenario.datasetA().tabela() + "...");
-            var a = repositorio.extrair(cenario.datasetA());
+            var a = repositorio.extrair(cenario.datasetA(), estrategia == EstrategiaExecucao.BSP);
             progresso.accept("Extraindo " + cenario.datasetB().tabela() + "...");
-            var b = repositorio.extrair(cenario.datasetB());
+            var b = repositorio.extrair(cenario.datasetB(), estrategia == EstrategiaExecucao.BSP);
             progresso.accept("Registros extraídos: A=" + a.ids().size() + ", B=" + b.ids().size());
             ResultadoParticionamento resA;
             ResultadoParticionamento resB;
@@ -55,6 +71,16 @@ public final class ExecutorBenchmark {
                 var molde = str.criarGrade(a.wkts(), b.wkts());
                 resA = str.processar(a.wkts(), molde);
                 resB = str.processar(b.wkts(), molde);
+            } else if (estrategia == EstrategiaExecucao.HILBERT) {
+                var hilbert = new HilbertCurvePartitioner(capacidadeHilbert, bitsHilbert);
+                var molde = hilbert.criarGrade(a.wkts(), b.wkts());
+                resA = hilbert.processar(a.wkts(), molde);
+                resB = hilbert.processar(b.wkts(), molde);
+            } else if (estrategia == EstrategiaExecucao.BSP) {
+                var bsp = new BinarySplitPartitioner(capacidadeBsp);
+                var molde = bsp.criarGrade(a.wkts(), b.wkts());
+                resA = bsp.processar(a.wkts(), molde);
+                resB = bsp.processar(b.wkts(), molde);
             } else {
                 var fixedGrid = new FixedGridPartitioner();
                 var grade = fixedGrid.criarGrade(a.wkts(), b.wkts());

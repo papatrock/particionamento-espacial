@@ -1,6 +1,6 @@
 # Benchmark Espacial — Java e PostgreSQL/PostGIS
 
-Executa joins de interseção espacial em quatro modos: Fixed Grid, Two-Layer, STR e sem particionamento. Os runners selecionam os experimentos; um executor compartilhado coordena a extração, o particionamento, a carga e a consulta.
+Executa joins de interseção espacial em cinco modos de benchmark: Two-Layer, STR, Hilbert Curve, Binary Split e sem particionamento. O Fixed Grid permanece como implementação histórica, fora do menu de benchmarks. Os runners selecionam os experimentos; um executor compartilhado coordena a extração, o particionamento, a carga e a consulta.
 
 ## Pré-requisitos
 
@@ -45,6 +45,9 @@ Os dumps contêm comandos de remoção e recriação das respectivas tabelas. Ao
 | `TABELA_B` | `tabela.b` | Tabela B do cenário escolhido |
 | — | `twoLayer.celulasPorEixo` | `10` |
 | — | `str.capacidade` | `1000` |
+| — | `hilbert.capacidade` | `1000` |
+| — | `hilbert.bits` | `16` (1 a 16) |
+| — | `bsp.capacidade` | `1000` |
 | — | `str.debug` | `false` |
 
 Propriedades `-D` têm prioridade sobre variáveis de ambiente. As substituições de tabela preservam schema, colunas, tipo e SRID do cenário. Para alterar esses atributos, configure um `DatasetEspacial` em um catálogo ou runner próprio.
@@ -65,10 +68,11 @@ mvn compile exec:java -Dexec.mainClass="benchmark.CenarioTesteRunner" \
 Primeiro escolha o cenário; depois, o modo:
 
 ```text
-1 - Fixed Grid
+1 - Sem particionamento
 2 - Two-Layer SOP
-3 - Sem particionamento
-4 - STR DOP
+3 - STR DOP
+4 - Hilbert Curve DOP
+5 - Binary Split SOP
 ```
 
 O programa exibe cenário, modo, número de partições, interseções encontradas e tempo do join. Entradas inválidas no menu pedem uma nova seleção.
@@ -91,7 +95,7 @@ Em toda execução particionada, uma `grade_metadados` anterior é removida na t
 
 ## Fluxo e resultados no banco
 
-Nas opções 1, 2 e 4, o executor extrai as duas entradas, aplica o particionador e substitui as saídas em uma transação, com rollback se a carga falhar. Todos os runners que usam esse executor escrevem nas mesmas tabelas do schema `public`:
+Nas opções 2, 3, 4 e 5, o executor extrai as duas entradas, aplica o particionador e substitui as saídas em uma transação, com rollback se a carga falhar. Todos os runners que usam esse executor escrevem nas mesmas tabelas do schema `public`:
 
 - `tabela_a_particionada` e `tabela_b_particionada`: tabelas-mãe com `id`, `id_particao`, `classe` e `geom`.
 - `tabela_a_p1…pN` e `tabela_b_p1…pN`: partições filhas.
@@ -99,7 +103,7 @@ Nas opções 1, 2 e 4, o executor extrai as duas entradas, aplica o particionado
 
 **Uma execução particionada substitui a anterior**, inclusive as partições filhas, usando `DROP TABLE ... CASCADE`. Não há histórico automático nem suporte a execuções concorrentes sobre essas mesmas saídas. O Two-Layer com 10 células por eixo cria 100 partições por tabela; o Fixed Grid cria quatro.
 
-Na opção 3, o join roda diretamente nas entradas, usando seus índices existentes. Não há extração para Java, carga ou alteração das tabelas de saída. `Partições` aparece como “não se aplica”.
+Na opção 1, o join roda diretamente nas entradas, usando seus índices existentes. Não há extração para Java, carga ou alteração das tabelas de saída. `Partições` aparece como “não se aplica”.
 
 As tabelas antigas `quadras_particionadas`, `ruas_particionadas` e suas filhas, produzidas pela versão anterior do `Main`, não são mais usadas nem removidas automaticamente. No QGIS, use as saídas compartilhadas acima; camadas já adicionadas ao projeto não são removidas por um refresh do mapa.
 
@@ -117,7 +121,7 @@ JOIN public.tabela_b_particionada b
  AND ST_Intersects(a.geom, b.geom);
 ```
 
-Para consultar pares do Fixed Grid ou STR, use `SELECT DISTINCT a.id, b.id` com igualdade de `id_particao` e `ST_Intersects(a.geom, b.geom)`, sem o filtro de classes.
+Para consultar pares do STR, Hilbert, BSP ou Fixed Grid legado, use `SELECT DISTINCT a.id, b.id` com igualdade de `id_particao` e `ST_Intersects(a.geom, b.geom)`, sem o filtro de classes.
 
 ### Medição
 
@@ -235,7 +239,7 @@ No benchmark, o molde é construído sobre **A e B juntas**, considerando todos 
 mvn compile exec:java -Dstr.capacidade=500
 ```
 
-Escolha a opção `4 - STR DOP`. Para uso direto:
+Escolha a opção `3 - STR DOP`. Para uso direto:
 
 ```java
 var str = new SortTileRecursive(500);
@@ -249,3 +253,95 @@ Para apenas uma entrada, use `str.processar(wkts)`. No executor programático, `
 Geometrias `EMPTY` não participam; entradas sem objetos geram molde vazio. WKT nulo, XY não finito, capacidade inválida, fronteiras que não sejam MBRs e IDs de partição não positivos ou repetidos são rejeitados. Um objeto sem interseção com nenhuma fronteira também é rejeitado. Essa validação não comprova cobertura completa de um molde externo: para preservar o join, gere o molde com ambas as entradas completas, como faz o executor. Não se amplia automaticamente um molde amostrado.
 
 Os testes cobrem ordenação, MBR completo, última faixa incompleta, pontos e linhas, replicação nas bordas, entradas inválidas e equivalência dos pares de um join direto com os de um join particionado em dados sintéticos usando JTS. A validação do pipeline SQL com PostGIS deve ser feita no ambiente do benchmark.
+
+
+## Hilbert Curve: implementação e uso
+
+`HilbertCurvePartitioner` implementa HC da seção 4.2 de [Aji, Vo e Wang](https://arxiv.org/abs/1509.00910).
+Calcula o **centroide geométrico JTS** de cada objeto, ordena pelo índice Hilbert,
+agrupa objetos consecutivos em blocos de até `b` e usa o MBR completo de cada grupo
+como fronteira. Não constrói os níveis de uma Hilbert R-tree.
+
+Escolhas de implementação explicitadas para reprodução dos experimentos:
+
+- O molde é construído sobre **A e B completas**, como no STR; `N` soma seus objetos não vazios.
+- O domínio é o envelope conjunto das geometrias. Cada eixo é normalizado separadamente
+  para `[0, 2^bits - 1]`, com arredondamento para baixo; eixo degenerado recebe zero.
+  A normalização serve apenas à ordenação: geometrias e fronteiras conservam as coordenadas originais.
+- Usa `HilbertCode.encode` do JTS 1.19.0. `bits` varia de 1 a 16, com padrão 16.
+  O índice de 32 bits é convertido em `long` sem sinal antes da ordenação.
+  Precisão, normalização e desempate são escolhas desta implementação, não parâmetros prescritos no artigo.
+- Empates são resolvidos por centroide X/Y e extremos do MBR (minX, minY, maxX, maxY).
+  Objetos ainda empatados têm o mesmo MBR e são intercambiáveis na construção das regiões.
+- São criadas `ceil(N/b)` regiões, IDs a partir de 1, podendo a última conter menos de `b` objetos.
+  MBRs podem se sobrepor ou ser pontos/linhas. Não se acrescenta área artificial.
+- Na associação final, cada geometria é replicada em todos os MBRs intersectados por seu envelope,
+  incluindo bordas. `ParticionamentoPorMbr` compartilha essa etapa com STR; seu índice JTS
+  apenas acelera a busca, não define o particionamento Hilbert.
+- O join usa igualdade de partição, `ST_Intersects` e `DISTINCT` sobre os pares de IDs originais.
+  A coluna `classe` recebe A por compatibilidade. **`b` limita o grupo inicial, não a ocupação após replicação.**
+- Geometrias vazias são ignoradas; WKT nulo, XY não finito, centroide não finito,
+  capacidade/precisão inválidas e moldes inválidos são rejeitados. As entradas devem ser geometrias 2D válidas.
+  A validação de um molde externo verifica destinos existentes, mas não comprova cobertura integral;
+  use o molde construído com ambas as entradas completas para preservar o join.
+
+```bash
+mvn compile exec:java -Dexec.mainClass=benchmark.CenarioTesteRunner \
+  -Dhilbert.capacidade=500 -Dhilbert.bits=16
+```
+
+Escolha o cenário e depois `4 - Hilbert Curve DOP`. As tabelas de saída são as mesmas
+usadas pelas outras estratégias; uma execução substitui as saídas anteriores.
+A propriedade legada `str.debug=true` também habilita a tabela de fronteiras para Hilbert.
+
+Uso direto:
+
+```java
+var hc = new HilbertCurvePartitioner(500, 16);
+var molde = hc.criarGrade(wktsA, wktsB);
+var resA = hc.processar(wktsA, molde);
+var resB = hc.processar(wktsB, molde);
+```
+
+No executor: `executar(cenario, EstrategiaExecucao.HILBERT, 10, 1000, 500, 16)`.
+Os argumentos são cenário, estratégia, células por eixo Two-Layer, capacidade STR,
+capacidade Hilbert e bits Hilbert. As sobrecargas antigas continuam válidas e usam os padrões de Hilbert.
+
+A formação das regiões requer ordenação `O(N log N)` e memória `O(N)`, além do custo
+para ler as coordenadas e calcular os centroides. A associação final depende das sobreposições
+entre MBRs e da quantidade de cópias; seu custo não fica limitado pela capacidade `b`.
+
+Execute `mvn test` para verificar ordem Hilbert conhecida (incluindo índices sem sinal),
+centroide versus centro do MBR, grupos incompletos, desempates, entradas degeneradas,
+replicação nas bordas, validações e equivalência dos pares com um join direto em dados sintéticos JTS.
+Os testes também verificam essa equivalência para STR, cuja associação por MBR é compartilhada.
+A validação do pipeline SQL com PostgreSQL/PostGIS exige o ambiente de banco do benchmark.
+
+
+## Binary Split: referência e uso
+
+`BinarySplitPartitioner` implementa a variante BSP de Aji, Vo e Wang (2015), seção 4.2,
+Algoritmo 3: inserção incremental de MBRs, dois cortes candidatos pelas medianas de seus
+centros e escolha do maior produto das áreas dos filhos. Regiões não se sobrepõem
+interiormente; objetos que cruzam fronteiras são replicados, e o join deduplica pares.
+
+**O pseudocódigo da fonte contém ambiguidades.** A implementação usa `> b` conforme o
+texto (o algoritmo imprime `<= c`), uma raiz persistente e redistribuição dos objetos
+anteriores. Todas as evidências, decisões e possíveis divergências estão no
+[relatório de fidelidade BSP](docs/bsp-referencia.md).
+
+```bash
+mvn compile exec:java -Dexec.mainClass=benchmark.CenarioTesteRunner -Dbsp.capacidade=1000
+```
+
+Escolha **5 — Binary Split SOP**. Usa molde A+B; o executor lê A por ID crescente e
+então B por ID crescente para reproduzir a ordem incremental. IDs devem ser únicos
+em cada relação. Não há amostragem. Uma construção bem-sucedida respeita a capacidade
+por folha contando MBRs replicados; não existe número fixo de partições.
+Se as medianas não permitirem novas divisões para satisfazer b, a execução falha com
+diagnóstico antes de substituir as saídas, sem gerar cortes alternativos ou folhas
+excedentes silenciosamente. Ordem, capacidade e política de falha fazem parte do protocolo experimental.
+
+Validação: `mvn test`. Para incluir o teste real de pares no PostGIS:
+`BSP_TEST_POSTGIS=true mvn test`, usando a configuração de conexão do projeto.
+Esse teste usa somente tabelas temporárias, compara `EXCEPT` nos dois sentidos e faz rollback.
