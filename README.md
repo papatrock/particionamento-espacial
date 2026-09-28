@@ -2,6 +2,20 @@
 
 Executa joins de interseção espacial em cinco modos de benchmark: Two-Layer, STR, Hilbert Curve, Binary Split e sem particionamento. O Fixed Grid permanece como implementação histórica, fora do menu de benchmarks. Os runners selecionam os experimentos; um executor compartilhado coordena a extração, o particionamento, a carga e a consulta.
 
+
+consulta.sql
+
+```sql
+SELECT COUNT(*)
+FROM (
+    SELECT DISTINCT a.id, b.id
+    FROM public.tabela_a_particionada a
+    JOIN public.tabela_b_particionada b
+      ON a.id_particao = b.id_particao
+     AND ST_Intersects(a.geom, b.geom)
+) pares;
+```
+
 ## Pré-requisitos
 
 - Java (JDK) 17 ou superior e Maven 3.6+.
