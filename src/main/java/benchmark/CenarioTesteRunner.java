@@ -15,7 +15,9 @@ import java.util.Scanner;
 
 /** Entrada interativa: seleciona configurações, chama o executor e apresenta o resultado. */
 public class CenarioTesteRunner {
+    private static final boolean DEBUG = Boolean.getBoolean("str.debug");
     public static void main(String[] args) throws Exception {
+
         var cenarios = new ArrayList<CenarioTeste>();
         cenarios.addAll(CenariosCuritiba.listar());
         cenarios.addAll(CenariosBrasil.listar());
@@ -32,20 +34,27 @@ public class CenarioTesteRunner {
         var cenario = cenarios.get(escolhido - 1);
         String tabelaA = ConfiguracaoBanco.valor("tabela.a", "TABELA_A", cenario.datasetA().tabela());
         String tabelaB = ConfiguracaoBanco.valor("tabela.b", "TABELA_B", cenario.datasetB().tabela());
+
         cenario = new CenarioTeste(cenario.nomeCenario(),
-                cenario.datasetA().comTabela(tabelaA), cenario.datasetB().comTabela(tabelaB));
+        cenario.datasetA().comTabela(tabelaA), cenario.datasetB().comTabela(tabelaB));
         System.out.println("\nCenário selecionado: " + cenario);
 
         var estrategias = java.util.Arrays.stream(EstrategiaExecucao.values())
-                .filter(e -> e != EstrategiaExecucao.FIXED_GRID).toArray(EstrategiaExecucao[]::new);
+        .filter(e -> e != EstrategiaExecucao.FIXED_GRID).toArray(EstrategiaExecucao[]::new);
 
         System.out.println("\nSelecione o algoritmo de particionamento:");
         for (int i = 0; i < estrategias.length; i++) {
             System.out.println((i + 1) + " - " + estrategias[i]);
         }
         var estrategia = estrategias[escolher(scanner, "Opção: ", estrategias.length) - 1];
+
+        if(DEBUG) {
+            System.out.println("Tabela A:" + tabelaA + "\nTabela B:" + tabelaB + "\nEstrategia:" + estrategia);
+        }
+
         int celulas = estrategia == EstrategiaExecucao.TWO_LAYER
-                ? Integer.parseInt(System.getProperty("twoLayer.celulasPorEixo", "10")) : 10;
+        ? Integer.parseInt(System.getProperty("twoLayer.celulasPorEixo", "10")) : 10;
+
 
         var executor = new ExecutorBenchmark(ConfiguracaoBanco.doAmbiente(), System.out::println);
 
