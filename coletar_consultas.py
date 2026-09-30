@@ -7,10 +7,11 @@ import subprocess
 from datetime import datetime, timezone
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--cenario", required=True)
+parser.add_argument("--cenario", required=True) #pp1: brasil_roads x brasil_polygon
 parser.add_argument("--algoritmo", required=True)
 parser.add_argument("--sql", type=Path, required=True)
 parser.add_argument("--banco", default="tcc_espacial")
+parser.add_argument("--indexacao", choices=("on", "off"), default="on")
 parser.add_argument("--aquecimentos", type=int, default=3)
 parser.add_argument("--repeticoes", type=int, default=10)
 parser.add_argument("--rodada", type=int, default=1)
@@ -38,6 +39,10 @@ comandos = [
     r"\timing off",
     "SET max_parallel_workers_per_gather = 0;",
     "SET enable_partitionwise_join = on;",
+    "SET enable_seqscan = on;",
+    f"SET enable_indexscan = {args.indexacao};",
+    f"SET enable_indexonlyscan = {args.indexacao};",
+    f"SET enable_bitmapscan = {args.indexacao};",
 ]
 
 comandos.extend([consulta] * args.aquecimentos)
@@ -50,6 +55,9 @@ ambiente["LC_ALL"] = "C"  # Padroniza a saída: "Time: ... ms".
 resultado = subprocess.run(
     [
         "psql",
+        "--host", "localhost",
+        "--port", "5432",
+        "--username", "postgres",
         "-X",                       # Ignora personalizações do .psqlrc.
         "--no-password",            # Falha em vez de esperar senha interativa.
         "--set=ON_ERROR_STOP=1",
