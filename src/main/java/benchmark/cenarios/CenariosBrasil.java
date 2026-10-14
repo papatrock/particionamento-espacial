@@ -10,16 +10,16 @@ public class CenariosBrasil {
 
     public static List<CenarioTeste> listar() {
         var linhas = new DatasetEspacial(
-                "public", "brasil_osm_line",
-                "osm_id", "way", "MultiLineString", 3857);
+                "public", "brasil_line",
+                "osm_id", "geom", "LineString", 3857);
 
         var pontos = new DatasetEspacial(
-                "public", "brasil_osm_point",
-                "osm_id", "way", "MultiPoint", 3857);
+                "public", "brasil_point",
+                "osm_id", "geom", "Point", 3857);
 
         var poligonos = new DatasetEspacial(
-                "public", "brasil_osm_polygon",
-                "osm_id", "way", "Geometry", 3857);
+                "public", "brasil_polygon",
+                "osm_id", "geom", "Polygon", 3857);
 
         return List.of(
                 new CenarioTeste("Brasil: Linhas x Polígonos", linhas, poligonos),
