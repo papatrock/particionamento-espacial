@@ -16,7 +16,7 @@
                 <version>3.6.3</version>
                 <configuration>
                     <!-- Aponte para o pacote.nome_da_classe -->
-                    <mainClass>benchmark.Main</mainClass>
+                    <mainClass>${exec.mainClass}</mainClass>
                 </configuration>
             </plugin>
         </plugins>
@@ -37,6 +37,7 @@
     </dependencies>
 
     <properties>
+        <exec.mainClass>benchmark.Main</exec.mainClass>
         <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
