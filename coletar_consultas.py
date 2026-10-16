@@ -11,7 +11,10 @@ parser.add_argument("--cenario", required=True) #pp1: brasil_line x brasil_polyg
 parser.add_argument("--algoritmo", required=True)
 parser.add_argument("--sql", type=Path, required=True)
 parser.add_argument("--banco", default="benchmark")
-parser.add_argument("--indexacao", choices=("on", "off"), default="on")
+parser.add_argument("--indexacao", choices=("on", "off"), default="on",
+                    help="Habilita/desabilita métodos de acesso por índice; não cria nem remove GiST.")
+parser.add_argument("--workers", type=int, default=24,
+                    help="Limite de workers paralelos por Gather (padrão: 24; 0 desabilita paralelismo).")
 parser.add_argument("--aquecimentos", type=int, default=3)
 parser.add_argument("--repeticoes", type=int, default=10)
 parser.add_argument("--rodada", type=int, default=1)
@@ -20,6 +23,8 @@ args = parser.parse_args()
 
 if args.aquecimentos < 0 or args.repeticoes < 1:
     parser.error("Use aquecimentos >= 0 e repeticoes >= 1.")
+if args.workers < 0:
+    parser.error("Use workers >= 0.")
 
 # O arquivo deve conter uma única consulta SELECT terminada em ponto e vírgula.
 consulta = args.sql.read_text(encoding="utf-8").strip()
@@ -37,12 +42,15 @@ pasta.mkdir(parents=True, exist_ok=False)
 comandos = [
     r"\pset pager off",
     r"\timing off",
-    "SET max_parallel_workers_per_gather = 0;",
+    f"SET max_parallel_workers_per_gather = {args.workers};",
     "SET enable_partitionwise_join = on;",
     "SET enable_seqscan = on;",
     f"SET enable_indexscan = {args.indexacao};",
     f"SET enable_indexonlyscan = {args.indexacao};",
     f"SET enable_bitmapscan = {args.indexacao};",
+    "SHOW max_parallel_workers_per_gather;",
+    "SHOW max_parallel_workers;",
+    "SHOW max_worker_processes;",
 ]
 
 comandos.extend([consulta] * args.aquecimentos)
@@ -103,12 +111,14 @@ with (pasta / "consultas.csv").open(
     writer.writerow([
         "execucao", "cenario", "algoritmo", "rodada",
         "repeticao", "aquecimentos", "tempo_cliente_ms",
+        "workers_por_gather", "indexacao",
     ])
 
     for repeticao, tempo in enumerate(tempos, start=1):
         writer.writerow([
             execucao, args.cenario, args.algoritmo, args.rodada,
             repeticao, args.aquecimentos, tempo,
+            args.workers, args.indexacao,
         ])
 
 print(f"{len(tempos)} medições salvas em {pasta / 'consultas.csv'}")
