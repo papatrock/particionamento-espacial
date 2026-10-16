@@ -1,4 +1,6 @@
 *.pbf
 target
+__pycache__/
+/resultados/
 *.lst
 #*.sql
