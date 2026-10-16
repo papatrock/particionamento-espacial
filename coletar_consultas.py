@@ -6,6 +6,8 @@ import re
 import subprocess
 from datetime import datetime, timezone
 
+from perf_coleta import argumentos_perf, executar_perf, finalizar_perf
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--cenario", required=True) #pp1: brasil_line x brasil_polygon
 parser.add_argument("--algoritmo", required=True)
@@ -24,6 +26,7 @@ parser.add_argument("--rodada", type=int, default=1)
 parser.add_argument("--contagem-esperada", type=int,
                     help="Valida o COUNT escalar de cada aquecimento e repetição contra este valor.")
 parser.add_argument("--saida", type=Path, default=Path("resultados/pp1"))
+argumentos_perf(parser)
 args = parser.parse_args()
 
 if args.aquecimentos < 0 or args.repeticoes < 1:
@@ -34,6 +37,8 @@ if args.porta is not None and not 1 <= args.porta <= 65535:
     parser.error("Use uma porta entre 1 e 65535.")
 if args.contagem_esperada is not None and args.contagem_esperada < 0:
     parser.error("Use contagem-esperada >= 0.")
+if args.perf and not args.perf_eventos.strip():
+    parser.error("Informe ao menos um evento em --perf-eventos.")
 
 # O arquivo deve conter uma única consulta SELECT terminada em ponto e vírgula.
 consulta = args.sql.read_text(encoding="utf-8").strip()
@@ -65,8 +70,10 @@ comandos = [
 marcador = "__COLETAR_CONTAGEM__"
 consulta_marcada = [rf"\echo {marcador}", consulta] if args.contagem_esperada is not None else [consulta]
 comandos.extend(consulta_marcada * args.aquecimentos)
+preparacao = list(comandos)
+medicoes = consulta_marcada * args.repeticoes
 comandos.append(r"\timing on")
-comandos.extend(consulta_marcada * args.repeticoes)
+comandos.extend(medicoes)
 
 ambiente = os.environ.copy()
 ambiente["LC_ALL"] = "C"  # Padroniza a saída: "Time: ... ms".
@@ -83,13 +90,19 @@ for opcao, valor in (("--host", args.host), ("--port", args.porta), ("--username
     if valor is not None:
         comando_psql.extend([opcao, str(valor)])
 
-resultado = subprocess.run(
-    comando_psql,
-    input="\n".join(comandos) + "\n",
-    text=True,
-    capture_output=True,
-    env=ambiente,
-)
+try:
+    if args.perf:
+        resultado = executar_perf(comando_psql, preparacao, medicoes, ambiente, pasta, {
+            "execucao": execucao, "cenario": args.cenario, "algoritmo": args.algoritmo,
+            "rodada": args.rodada, "repeticoes": args.repeticoes, "eventos": args.perf_eventos,
+        })
+    else:
+        resultado = subprocess.run(
+            comando_psql, input="\n".join(comandos) + "\n", text=True,
+            capture_output=True, env=ambiente,
+        )
+except (OSError, RuntimeError) as erro:
+    raise SystemExit(str(erro)) from erro
 
 (pasta / "psql.stdout.log").write_text(
     resultado.stdout, encoding="utf-8"
@@ -131,6 +144,14 @@ if len(tempos) != args.repeticoes:
         f"Confira o SQL e os logs em {pasta}."
     )
 
+if args.perf:
+    try:
+        status_perf = finalizar_perf(pasta)
+    except (OSError, RuntimeError) as erro:
+        raise SystemExit(str(erro)) from erro
+    if status_perf != "concluido":
+        print(f"Perf: há contadores indisponíveis; confira {pasta / 'perf.csv'}.")
+
 with (pasta / "consultas.csv").open(
     "w", newline="", encoding="utf-8"
 ) as arquivo:
@@ -140,6 +161,7 @@ with (pasta / "consultas.csv").open(
         "repeticao", "aquecimentos", "tempo_cliente_ms",
         "workers_por_gather", "indexacao",
         "intersecoes",
+        "perf",
     ])
 
     for repeticao, tempo in enumerate(tempos, start=1):
@@ -148,6 +170,7 @@ with (pasta / "consultas.csv").open(
             repeticao, args.aquecimentos, tempo,
             args.workers, args.indexacao,
             args.contagem_esperada,
+            "on" if args.perf else "off",
         ])
 
 print(f"{len(tempos)} medições salvas em {pasta / 'consultas.csv'}")

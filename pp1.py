@@ -12,6 +12,8 @@ import subprocess
 import sys
 import tempfile
 
+from perf_coleta import argumentos_perf, verificar_perf
+
 
 RAIZ = Path(__file__).resolve().parent
 ALGORITMOS = ("SEM_PARTICIONAMENTO", "TWO_LAYER", "STR", "HILBERT", "BSP")
@@ -59,6 +61,7 @@ def argumentos():
     parser.add_argument("--id-brasil", default="osm_id", help="Coluna de ID único nas duas entradas do Brasil.")
     parser.add_argument("--saida", type=Path, default=Path("resultados/pp1"))
     parser.add_argument("--simular", action="store_true", help="Mostra a matriz sem conectar, compilar ou alterar tabelas.")
+    argumentos_perf(parser)
     args = parser.parse_args()
     if args.workers < 0 or args.aquecimentos < 0 or args.repeticoes < 1:
         parser.error("Use workers >= 0, aquecimentos >= 0 e repeticoes >= 1.")
@@ -70,6 +73,8 @@ def argumentos():
         parser.error("Porta deve estar entre 1 e 65535.")
     if "TWO_LAYER" in args.algoritmos and isqrt(args.particoes) ** 2 != args.particoes:
         parser.error("Two-Layer requer --particoes igual a um quadrado perfeito, como 16, 64 ou 256.")
+    if args.perf and not args.perf_eventos.strip():
+        parser.error("Informe ao menos um evento em --perf-eventos.")
     args.datasets = list(dict.fromkeys(args.datasets))
     args.algoritmos = list(dict.fromkeys(args.algoritmos))
     return args
@@ -197,14 +202,17 @@ class Experimento:
     def medir(self, dataset, algoritmo, consulta, esperado, pasta):
         arquivo = pasta / "consulta.sql"
         arquivo.write_text(consulta + "\n", encoding="utf-8")
-        self.processo([
+        comando = [
             sys.executable, str(RAIZ / "coletar_consultas.py"), *self.conexao,
             "--cenario", dataset["cenario"], "--algoritmo", algoritmo, "--sql", str(arquivo),
             "--workers", str(self.args.workers), "--indexacao", "on",
             "--aquecimentos", str(self.args.aquecimentos), "--repeticoes", str(self.args.repeticoes),
             "--rodada", str(self.args.rodada), "--contagem-esperada", str(esperado),
             "--saida", str(pasta / "medicoes"),
-        ], pasta / "coletor.log")
+        ]
+        if self.args.perf:
+            comando.extend(["--perf", "--perf-eventos", self.args.perf_eventos])
+        self.processo(comando, pasta / "coletor.log")
         plano = self.sql(self.configuracao_sessao() + "\nEXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) " + consulta,
                          pasta / "plano")
         salvar_json(pasta / "plano.json", json.loads(plano))
@@ -231,7 +239,8 @@ def executar(args):
         for nome in args.datasets:
             for algoritmo in args.algoritmos:
                 print(f"{nome}: {DATASETS[nome]['cenario']} / {algoritmo}; "
-                      f"GiST=on; workers={args.workers}; alvo={args.particoes if algoritmo != 'SEM_PARTICIONAMENTO' else 'N/A'}")
+                      f"GiST=on; workers={args.workers}; alvo={args.particoes if algoritmo != 'SEM_PARTICIONAMENTO' else 'N/A'}; "
+                      f"perf={'on' if args.perf else 'off'}")
         return
     pasta = args.saida.resolve() / ("pp1_" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ"))
     pasta.mkdir(parents=True, exist_ok=False)
@@ -240,6 +249,9 @@ def executar(args):
     experimento = Experimento(args, pasta)
     manifesto = {"status": "em_execucao", "combinacoes": []}
     try:
+        if args.perf:
+            print("Verificando eventos e permissões do perf antes da preparação...", flush=True)
+            verificar_perf(args.perf_eventos, pasta, experimento.ambiente)
         if any(a != "SEM_PARTICIONAMENTO" for a in args.algoritmos):
             print("Compilando os particionadores Java...", flush=True)
             experimento.processo(["mvn", "-q", "compile"], pasta / "compilacao.log")
@@ -285,6 +297,18 @@ def executar(args):
                         registro.update(status="concluido", intersecoes=esperado,
                                         particoes_efetivas=metadata["particoes_efetivas"])
                         salvar_json(pasta / "manifesto.json", manifesto)
+        if args.perf:
+            arquivos_perf = sorted(pasta.glob("*/*/medicoes/*/perf.csv"))
+            with (pasta / "perf.csv").open("w", newline="", encoding="utf-8") as consolidado:
+                writer_perf = None
+                for arquivo_perf in arquivos_perf:
+                    with arquivo_perf.open(newline="", encoding="utf-8") as arquivo:
+                        for linha in csv.DictReader(arquivo):
+                            linha["dataset"] = arquivo_perf.relative_to(pasta).parts[0]
+                            if writer_perf is None:
+                                writer_perf = csv.DictWriter(consolidado, fieldnames=list(linha))
+                                writer_perf.writeheader()
+                            writer_perf.writerow(linha)
         manifesto["status"] = "concluido"
     except (RuntimeError, OSError, ValueError, StopIteration, KeyboardInterrupt) as erro:
         manifesto.update(status="falhou", erro=str(erro))
