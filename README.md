@@ -139,8 +139,8 @@ ORDER BY tablename, indexname;
 Crie apenas os índices GiST que estiverem ausentes nas colunas geométricas usadas pelo join. Com os nomes de colunas configurados no catálogo, os comandos são:
 
 ```sql
-CREATE INDEX idx_pp1_eixo_rua_geom ON public.eixo_rua USING GIST (wkb_geometry);
-CREATE INDEX idx_pp1_arruamento_quadras_geom ON public.arruamento_quadras USING GIST (wkb_geometry);
+CREATE INDEX idx_pp1_eixo_rua_geom ON public.eixo_rua USING GIST (geom);
+CREATE INDEX idx_pp1_arruamento_quadras_geom ON public.arruamento_quadras USING GIST (geom);
 CREATE INDEX idx_pp1_brasil_line_geom ON public.brasil_line USING GIST (geom);
 CREATE INDEX idx_pp1_brasil_polygon_geom ON public.brasil_polygon USING GIST (geom);
 ```
