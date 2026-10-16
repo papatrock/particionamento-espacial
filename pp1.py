@@ -19,7 +19,7 @@ SAIDA_A = 'public."tabela_a_particionada"'
 SAIDA_B = 'public."tabela_b_particionada"'
 DATASETS = {
     "curitiba": {"cenario": "ruas_quadras", "tabelas": ("eixo_rua", "arruamento_quadras"),
-                 "geom": "wkb_geometry", "id": "ogc_fid", "srid": 31982,
+                 "geom": "wkb_geometry", "id": "gid", "srid": 31982,
                  "tipos": ("MultiLineString", "MultiPolygon")},
     "brasil": {"cenario": "brasil_line_polygon", "tabelas": ("brasil_line", "brasil_polygon"),
                "geom": "geom", "id": "osm_id", "srid": 3857,
@@ -55,7 +55,7 @@ def argumentos():
     parser.add_argument("--rodada", type=int, default=1)
     parser.add_argument("--hilbert-bits", type=int, default=16)
     parser.add_argument("--bsp-tentativas", type=int, default=8)
-    parser.add_argument("--id-curitiba", default="ogc_fid", help="Coluna de ID único nas duas entradas de Curitiba.")
+    parser.add_argument("--id-curitiba", default="gid", help="Coluna de ID único nas duas entradas de Curitiba.")
     parser.add_argument("--id-brasil", default="osm_id", help="Coluna de ID único nas duas entradas do Brasil.")
     parser.add_argument("--saida", type=Path, default=Path("resultados/pp1"))
     parser.add_argument("--simular", action="store_true", help="Mostra a matriz sem conectar, compilar ou alterar tabelas.")
