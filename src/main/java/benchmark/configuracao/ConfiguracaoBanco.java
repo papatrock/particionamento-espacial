@@ -18,7 +18,7 @@ public final class ConfiguracaoBanco {
 
     public static ConfiguracaoBanco doAmbiente() {
         return new ConfiguracaoBanco(
-                valor("db.url", "DB_URL", "jdbc:postgresql://localhost:5432/tcc_espacial"),
+                valor("db.url", "DB_URL", "jdbc:postgresql://localhost:5432/benchmark"),
                 valor("db.user", "DB_USER", "postgres"),
                 valor("db.password", "DB_PASSWORD", "1234"));
     }

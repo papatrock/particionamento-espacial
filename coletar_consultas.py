@@ -7,10 +7,10 @@ import subprocess
 from datetime import datetime, timezone
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--cenario", required=True) #pp1: brasil_roads x brasil_polygon
+parser.add_argument("--cenario", required=True) #pp1: brasil_line x brasil_polygon
 parser.add_argument("--algoritmo", required=True)
 parser.add_argument("--sql", type=Path, required=True)
-parser.add_argument("--banco", default="tcc_espacial")
+parser.add_argument("--banco", default="benchmark")
 parser.add_argument("--indexacao", choices=("on", "off"), default="on")
 parser.add_argument("--aquecimentos", type=int, default=3)
 parser.add_argument("--repeticoes", type=int, default=10)
