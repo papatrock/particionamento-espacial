@@ -16,7 +16,7 @@ public record DatasetEspacial(String schema, String tabela, String colunaId,
     }
 
     public DatasetEspacial(String tabela, String tipoGeometria, int srid) {
-        this("public", tabela, "gid", "wkb_geometry", tipoGeometria, srid);
+        this("public", tabela, "gid", "geom", tipoGeometria, srid);
     }
 
     public DatasetEspacial comTabela(String nome) {

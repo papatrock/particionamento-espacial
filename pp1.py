@@ -19,7 +19,7 @@ SAIDA_A = 'public."tabela_a_particionada"'
 SAIDA_B = 'public."tabela_b_particionada"'
 DATASETS = {
     "curitiba": {"cenario": "ruas_quadras", "tabelas": ("eixo_rua", "arruamento_quadras"),
-                 "geom": "wkb_geometry", "id": "gid", "srid": 31982,
+                 "geom": "geom", "id": "gid", "srid": 31982,
                  "tipos": ("MultiLineString", "MultiPolygon")},
     "brasil": {"cenario": "brasil_line_polygon", "tabelas": ("brasil_line", "brasil_polygon"),
                "geom": "geom", "id": "osm_id", "srid": 3857,
