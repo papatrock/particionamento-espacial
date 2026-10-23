@@ -1,6 +1,8 @@
 *.pbf
 target
 __pycache__/
+/.venv/
 /resultados/
 *.lst
 #*.sql
+tests/
