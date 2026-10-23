@@ -4,6 +4,7 @@
 - Maven 3.6 ou superior
 - PostgreSQL com PostGIS
 - Banco criado, extensão PostGIS habilitada e tabelas de entrada carregadas
+- Python 3.11 ou superior para as análises com pandas e Matplotlib
 
 O Maven baixa as dependências Java na primeira execução.
 
@@ -101,6 +102,120 @@ Cada execução cria `resultados/pp1/pp1_<dataUTC>/` com:
 - Uma pasta por dataset e algoritmo com SQL, logs, medições, plano e metadados de ocupação das partições.
 
 A exportação para arquivos e os algoritmos ainda exigem espaço temporário em disco e memória proporcional aos dados e à replicação. Se necessário, ajuste a memória do Maven/Java por `MAVEN_OPTS`. A preparação, os índices, a calibração e a captura do plano ficam fora dos tempos registrados no CSV.
+
+### Acumular resultados de várias execuções
+
+As pastas `pp1_<dataUTC>/` continuam sendo os resultados brutos de cada execução. O nome da pasta identifica a execução global (`pp1_run_id`); a coluna `execucao` dos CSVs continua identificando a chamada interna do coletor.
+
+Nas novas execuções, `configuracao.json` registra automaticamente `pp1_run_id`, `hostname`, `git_commit` e `git_dirty`. O Git é consultado antes de iniciar o experimento; se estiver indisponível, o commit e o estado desconhecido ficam como `null`, sem impedir a execução. `git_dirty` indica alterações locais no código, inclusive arquivos não rastreados que não estejam ignorados.
+
+Após um PP1 concluído, o script reconstrói automaticamente:
+
+```text
+resultados/pp1/
+├── pp1_<dataUTC1>/
+├── pp1_<dataUTC2>/
+└── acumulado/
+    ├── consultas_acumulado.csv
+    └── perf_acumulado.csv
+```
+
+Também é possível reconstruir manualmente, sem acessar o banco nem executar consultas:
+
+```bash
+python3 consolidar_pp1.py
+```
+
+Se os experimentos usaram outro diretório com `pp1.py --saida`, informe esse mesmo diretório:
+
+```bash
+python3 consolidar_pp1.py --entrada /caminho/dos/resultados/pp1
+```
+
+O consolidador usa apenas a biblioteca padrão do Python e lê os CSVs da raiz de cada pasta `pp1_*` cujo manifesto global esteja como `concluido`. Ele não importa novamente os CSVs internos de `medicoes/`, não altera os brutos e não faz append nos acumulados. Repetir a consolidação produz o mesmo conteúdo enquanto as fontes não mudarem.
+
+As repetições individuais e todas as colunas originais são preservadas, sem médias ou deduplicação de linhas de valores iguais. O perf permanece no formato longo, com uma linha por evento/PMU. Os dois acumulados acrescentam `pp1_run_id`, `hostname`, `git_commit` e `git_dirty`. Cabeçalhos diferentes são unidos e campos ausentes ficam vazios; execuções sem perf contribuem normalmente para o acumulado de consultas.
+
+Execuções antigas sem metadados de procedência continuam elegíveis, mas hostname e Git desconhecidos ficam vazios no acumulado. Elas não são regravadas e não recebem a procedência da máquina atual. Execuções com status `falhou` ou `em_execucao` são excluídas por inteiro, mesmo que tenham medições parciais válidas.
+
+Os CSVs são construídos em arquivos temporários dentro de `acumulado/` antes da substituição atômica de cada saída. Um lock local evita reconstruções concorrentes no Linux. Se um CSV de uma execução concluída estiver ausente ou malformado, a reconstrução informa o arquivo problemático e mantém os acumulados anteriores. Uma execução com `perf: true` também precisa ter seu `perf.csv`. Manifestos ausentes ou inválidos são ignorados com aviso.
+
+Se não houver execuções concluídas, são criados CSVs somente com cabeçalhos e uma mensagem clara. Falhas da consolidação automática são informadas como aviso e não alteram o status concluído nem os arquivos brutos do experimento. A etapa de análise usa os acumulados; o detalhamento está no [guia dos resultados](arquivos-resultados-pp1.md#camada-acumulada-de-várias-execuções).
+
+## Ambiente Python e análises
+
+Os scripts de análise ficam no pacote `analises/`, com um módulo por pergunta de pesquisa. A PP1 está em `analises/pp1.py`; as análises dos próximos experimentos podem seguir o mesmo padrão (`analises/pp2.py`, `analises/pp3.py`, etc.). Os scripts de execução e coleta continuam com seus comandos atuais.
+
+```text
+requirements.txt
+analises/
+├── __init__.py
+├── perf.py        # análise dos contadores e indicadores de perf
+└── pp1.py
+resultados/pp1/
+├── acumulado/
+├── analise/       # tabelas CSV geradas pela análise
+└── figuras/       # gráficos PDF e PNG
+```
+
+Na raiz do projeto, crie e ative o ambiente virtual:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+```
+
+Se `.venv` já existir, basta ativá-lo e instalar o arquivo de requisitos. As versões das dependências diretas estão fixadas conforme o ambiente validado: pandas 3.1.0 e Matplotlib 3.11.2. As dependências transitivas são resolvidas pelo pip. A pasta `.venv/` é ignorada pelo Git. A execução e a consolidação do benchmark continuam usando apenas a biblioteca padrão; essas bibliotecas são necessárias para a análise.
+
+Depois de consolidar os resultados, gere as análises e os gráficos:
+
+```bash
+python consolidar_pp1.py
+python -m analises.pp1
+```
+
+Também é possível executar diretamente `python analises/pp1.py`. Os caminhos padrão são relativos ao projeto, independentemente do diretório atual ao executar o arquivo. Para analisar uma raiz alternativa de resultados:
+
+```bash
+python -m analises.pp1 --resultados /caminho/dos/resultados/pp1
+```
+
+O módulo lê `acumulado/consultas_acumulado.csv` dessa raiz e grava `analise/resumo_tempos.csv`, `analise/speedup.csv` e três gráficos por dataset/cenário (boxplot, média com desvio padrão e speedup), cada um em PDF e PNG dentro de `figuras/`. As fórmulas e os agrupamentos dos tempos foram mantidos. A geração usa o backend Agg do Matplotlib e não precisa de interface gráfica. Importar o módulo não executa a análise; a função `analisar()` permite reutilizá-la em outros scripts.
+
+Quando existe `acumulado/perf_acumulado.csv`, o mesmo comando também gera `analise/contadores_perf.csv`, `analise/metricas_perf.csv` e `analise/qualidade_perf.csv`. Inclui contadores médios por consulta, IPC, percentual de falhas de cache e de desvios; os gráficos ficam em `figuras/perf/<pp1_run_id>/`, em PDF e PNG. PMUs como `cpu_core` e `cpu_atom` ficam separadas, e valores indisponíveis não viram zero. Consulte [as fórmulas e os limites da análise de perf](arquivos-resultados-pp1.md#análise-dos-contadores-de-perf).
+
+## Coletar contadores com perf
+
+Para incluir `perf stat` nas medições, execute no mesmo servidor Linux em que o PostgreSQL está rodando:
+
+```bash
+python3 pp1.py --banco benchmark --datasets brasil --id-brasil benchmark_id --perf
+```
+
+A opção também está disponível em `coletar_consultas.py`. Sem `--perf`, a coleta continua somente com os tempos do `psql`.
+
+Os eventos padrão são `cycles`, `instructions`, `cache-references`, `cache-misses`, `branches`, `branch-misses`, `context-switches`, `cpu-migrations` e `page-faults`. Para escolher outros eventos:
+
+```bash
+python3 pp1.py --datasets curitiba --perf --perf-eventos cycles,instructions
+```
+
+A coleta usa `perf stat -a`: cobre todas as CPUs e inclui os processos do PostgreSQL, seus workers, o cliente e qualquer outra atividade da máquina durante a janela. Medir somente o processo `psql` não cobre o trabalho do servidor. Por isso, use uma máquina com atividade controlada e mantenha o mesmo modo de instrumentação nas combinações comparadas.
+
+Os contadores ficam desativados durante a configuração da sessão e os aquecimentos. O coletor usa `--control` e `--delay=-1` do perf para ativá-los antes das repetições e desativá-los ao final, preservando a conexão do `psql`. O intervalo inclui algum overhead do cliente e do controle. O resultado é um **total para o bloco de repetições de cada combinação**, não um contador individual por consulta. Preparação, contagem inicial de referência e captura posterior do plano ficam fora dessa janela. [Referência de perf stat](https://man7.org/linux/man-pages/man1/perf-stat.1.html).
+
+Cada pasta de medições recebe `perf_stat.csv` (saída bruta delimitada por `;`), `perf.csv` (contadores com contexto e status), `perf.json` (eventos, versão e escopo) e `perf_sessao.psql` (comandos e pontos de controle). Quando o PP1 termina, cria também um `perf.csv` consolidado na raiz da execução. A coluna `perf` de `consultas.csv` identifica se a medição foi instrumentada. Veja [o guia dos arquivos de resultados](arquivos-resultados-pp1.md#arquivos-opcionais-do-perf) para interpretar esses registros.
+
+O script verifica o perf antes de iniciar os joins longos. É necessário ter uma versão com `perf stat --control` e permissão para coleta em todas as CPUs. Para conferir o acesso no servidor:
+
+```bash
+perf stat -a -e cycles,instructions -- true
+```
+
+Se houver erro de acesso, a permissão de monitoramento precisa ser configurada pelo administrador; o script não usa `sudo` nem modifica `perf_event_paranoid`. Evite executar todo o PP1 como root, pois isso também muda o usuário da conexão local com PostgreSQL. A [documentação do kernel](https://www.kernel.org/doc/html/latest/admin-guide/perf-security.html) descreve o controle por capabilities e `perf_event_paranoid`.
+
+Eventos não suportados ou não contados ficam explicitamente marcados no CSV, com valor vazio. Não são convertidos em zero. O percentual de tempo ativo ajuda a identificar multiplexação; contadores de hardware podem ser escalados pelo perf quando não ficam ativos durante toda a janela. O arquivo de verificação mede apenas um comando curto `true` e não deve ser usado na análise dos joins.
 
 ## Coletar uma combinação preparada
 

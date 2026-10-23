@@ -8,6 +8,7 @@ import json
 from math import isqrt
 import os
 from pathlib import Path
+import socket
 import subprocess
 import sys
 import tempfile
@@ -39,6 +40,35 @@ def literal(texto):
 
 def salvar_json(caminho, dados):
     caminho.write_text(json.dumps(dados, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def metadados_execucao(pp1_run_id):
+    dados = {"pp1_run_id": pp1_run_id, "hostname": socket.gethostname(), "git_commit": None, "git_dirty": None}
+    try:
+        commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=RAIZ, text=True,
+                                capture_output=True, timeout=5)
+        if commit.returncode == 0:
+            dados["git_commit"] = commit.stdout.strip() or None
+            status = subprocess.run(["git", "status", "--porcelain", "--untracked-files=normal"],
+                                    cwd=RAIZ, text=True, capture_output=True, timeout=5)
+            if status.returncode == 0:
+                dados["git_dirty"] = bool(status.stdout.strip())
+    except (OSError, subprocess.SubprocessError, UnicodeError):
+        # A procedência do Git é complementar e nunca impede o experimento.
+        pass
+    return dados
+
+
+def atualizar_acumulados(base):
+    try:
+        from consolidar_pp1 import consolidar, imprimir_resumo
+
+        imprimir_resumo(consolidar(base))
+    except Exception as erro:
+        # Pós-processamento: o manifesto concluído e os arquivos brutos já estão salvos.
+        print(f"Aviso: não foi possível atualizar os acumulados: {erro}. "
+              f"Os resultados brutos permanecem concluídos. Tente python3 consolidar_pp1.py --entrada {base}",
+              file=sys.stderr)
 
 
 def argumentos():
@@ -244,7 +274,7 @@ def executar(args):
         return
     pasta = args.saida.resolve() / ("pp1_" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ"))
     pasta.mkdir(parents=True, exist_ok=False)
-    config = {**vars(args), "saida": str(pasta), "indexacao": "on"}
+    config = {**vars(args), "saida": str(pasta), "indexacao": "on", **metadados_execucao(pasta.name)}
     salvar_json(pasta / "configuracao.json", config)
     experimento = Experimento(args, pasta)
     manifesto = {"status": "em_execucao", "combinacoes": []}
@@ -318,6 +348,7 @@ def executar(args):
     finally:
         salvar_json(pasta / "manifesto.json", manifesto)
     print(f"PP1 concluído. CSV consolidado: {pasta / 'consultas.csv'}", flush=True)
+    atualizar_acumulados(pasta.parent)
 
 
 if __name__ == "__main__":
