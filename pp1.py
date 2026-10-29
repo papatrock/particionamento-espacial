@@ -23,10 +23,12 @@ SAIDA_B = 'public."tabela_b_particionada"'
 DATASETS = {
     "curitiba": {"cenario": "ruas_quadras", "tabelas": ("eixo_rua", "arruamento_quadras"),
                  "geom": "geom", "id": "gid", "srid": 31982,
-                 "tipos": ("MultiLineString", "MultiPolygon")},
+                 "tipos": ("MultiLineString", "MultiPolygon"),
+                 "tipos_origem": ("MultiLineString", "MultiPolygon")},
     "brasil": {"cenario": "brasil_line_polygon", "tabelas": ("brasil_line", "brasil_polygon"),
-               "geom": "geom", "id": "osm_id", "srid": 3857,
-               "tipos": ("MultiLineString", "MultiPolygon")},
+               "geom": "geom", "id": "benchmark_id", "srid": 3857,
+               "tipos": ("MultiLineString", "MultiPolygon"),
+               "tipos_origem": ("LineString", "Polygon")},
 }
 
 
@@ -88,7 +90,7 @@ def argumentos():
     parser.add_argument("--hilbert-bits", type=int, default=16)
     parser.add_argument("--bsp-tentativas", type=int, default=8)
     parser.add_argument("--id-curitiba", default="gid", help="Coluna de ID único nas duas entradas de Curitiba.")
-    parser.add_argument("--id-brasil", default="osm_id", help="Coluna de ID único nas duas entradas do Brasil.")
+    parser.add_argument("--id-brasil", default="benchmark_id", help="Coluna de ID único nas duas entradas do Brasil.")
     parser.add_argument("--saida", type=Path, default=Path("resultados/pp1"))
     parser.add_argument("--simular", action="store_true", help="Mostra a matriz sem conectar, compilar ou alterar tabelas.")
     argumentos_perf(parser)
@@ -209,10 +211,15 @@ class Experimento:
         print(f"  Partições efetivas: {metadados['particoes_efetivas']}; alvo: {self.args.particoes}", flush=True)
         return metadados
 
-    def materializar(self, dataset, trabalho, metadados, pasta, criar_gist=True):
+    def materializar(self, dataset, trabalho, metadados, pasta, criar_gist=True, normalizar_multi=True):
+        # PP1 preserva os tipos de origem; PP2–PP4 mantêm a normalização padrão.
+        tipos = dataset["tipos"] if normalizar_multi else dataset["tipos_origem"]
+        geometria = f"ST_GeomFromText(wkt, {dataset['srid']})"
+        if normalizar_multi:
+            geometria = f"ST_Multi({geometria})"
         comandos = ["BEGIN;", f"DROP TABLE IF EXISTS {SAIDA_A} CASCADE;",
                     f"DROP TABLE IF EXISTS {SAIDA_B} CASCADE;"]
-        for lado, tabela, tipo in zip(("a", "b"), (SAIDA_A, SAIDA_B), dataset["tipos"]):
+        for lado, tabela, tipo in zip(("a", "b"), (SAIDA_A, SAIDA_B), tipos):
             comandos.append(f"CREATE TABLE {tabela} (id BIGINT NOT NULL, id_particao INTEGER NOT NULL, "
                             "classe CHAR(1) NOT NULL CHECK (classe IN ('A','B','C','D')), "
                             f"geom geometry({tipo}, {dataset['srid']})) PARTITION BY LIST (id_particao);")
@@ -224,7 +231,7 @@ class Experimento:
                 "CREATE TEMP TABLE pp1_carga (id BIGINT, id_particao INTEGER, classe CHAR(1), wkt TEXT) ON COMMIT DROP;",
                 f"\\copy pp1_carga FROM {literal(trabalho / (lado + '.tsv'))}",
                 f"INSERT INTO {tabela} SELECT id, id_particao, classe, "
-                f"ST_Multi(ST_GeomFromText(wkt, {dataset['srid']})) FROM pp1_carga;",
+                f"{geometria} FROM pp1_carga;",
                 "DROP TABLE pp1_carga;",
             ])
             if criar_gist:
@@ -316,7 +323,7 @@ def executar(args):
                         if algoritmo != "SEM_PARTICIONAMENTO":
                             with tempfile.TemporaryDirectory(prefix=".associacoes-", dir=caso) as trabalho:
                                 metadata = experimento.particionar(algoritmo, entradas, Path(trabalho), caso)
-                                experimento.materializar(dataset, Path(trabalho), metadata, caso)
+                                experimento.materializar(dataset, Path(trabalho), metadata, caso, normalizar_multi=False)
                             consulta = consulta_particionada(algoritmo)
                         medicoes = experimento.medir(dataset, algoritmo, consulta, esperado, caso)
                         with medicoes.open(newline="", encoding="utf-8") as arquivo:
