@@ -10,8 +10,8 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Ponte sem JDBC para pp1.py: lê COPY TSV, aplica os algoritmos e exporta associações. */
-public final class PP1ExperimentRunner {
+/** Runner compartilhado pelas PPs: lê COPY TSV, aplica os algoritmos e exporta associações, sem JDBC. */
+public final class ParticionamentoRunner {
     private record Entrada(List<Long> ids, List<String> wkts) { }
     private record GradeBsp(List<ParticaoMetadata> grade, int capacidade, String tentativas) { }
 
@@ -55,7 +55,7 @@ public final class PP1ExperimentRunner {
                 calibracao = escolha.tentativas;
                 particionador = new BinarySplitPartitioner(capacidade);
             }
-            default -> throw new IllegalArgumentException("Estratégia não particionada ou fora do PP1: " + estrategia);
+            default -> throw new IllegalArgumentException("Estratégia não particionada ou não suportada: " + estrategia);
         }
         long[] ocupacaoA = salvar(saida.resolve("a.tsv"), a, particionador.processar(a.wkts, grade));
         long[] ocupacaoB = salvar(saida.resolve("b.tsv"), b, particionador.processar(b.wkts, grade));
