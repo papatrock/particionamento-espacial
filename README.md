@@ -54,6 +54,13 @@ mvn compile exec:java -Dexec.mainClass=benchmark.CenarioTesteRunner
 
 Selecione o cenário e o algoritmo nos menus apresentados. Ao final, o programa mostra o resultado do join e seu tempo de execução.
 
+O runner Java compartilhado pelas quatro PPs é
+[`ParticionamentoRunner`](src/main/java/benchmark/ParticionamentoRunner.java).
+Os scripts o acionam pelo método `Experimento.particionar()`, definido em
+`pp1.py`. Ele recebe arquivos TSV e exporta as associações objeto–partição;
+os scripts Python organizam os experimentos e as consultas são executadas pelo `psql`.
+As propriedades Java `pp1.*` foram mantidas por compatibilidade.
+
 ## Executar o PP1 completo
 
 `pp1.py` prepara e mede as dez combinações: Curitiba (`eixo_rua × arruamento_quadras`) e Brasil (`brasil_line × brasil_polygon`), cada uma com `SEM_PARTICIONAMENTO`, `TWO_LAYER`, `STR`, `HILBERT` e `BSP`.

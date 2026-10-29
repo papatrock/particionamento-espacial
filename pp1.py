@@ -198,7 +198,7 @@ class Experimento:
             self.sql(consulta, pasta / (lado + "_exportacao"))
 
     def particionar(self, algoritmo, entradas, trabalho, pasta):
-        comando = ["mvn", "-q", "exec:java", "-Dexec.mainClass=benchmark.PP1ExperimentRunner",
+        comando = ["mvn", "-q", "exec:java", "-Dexec.mainClass=benchmark.ParticionamentoRunner",
                    f"-Dpp1.algoritmo={algoritmo}", f"-Dpp1.particoes={self.args.particoes}",
                    f"-Dpp1.hilbertBits={self.args.hilbert_bits}", f"-Dpp1.bspTentativas={self.args.bsp_tentativas}",
                    f"-Dpp1.entradaA={entradas / 'a.tsv'}", f"-Dpp1.entradaB={entradas / 'b.tsv'}",
