@@ -149,10 +149,10 @@ class Experimento:
                 "SET enable_partitionwise_join = on;\nSET enable_seqscan = on;\n"
                 "SET enable_indexscan = on;\nSET enable_indexonlyscan = on;\nSET enable_bitmapscan = on;")
 
-    def preparar_entradas(self, dataset, pasta):
+    def preparar_entradas(self, dataset, pasta, criar_gist=True):
         registros = []
         for nome in dataset["tabelas"]:
-            tabela = "public." + identificador(nome)
+            tabela = identificador(dataset.get("schema", "public")) + "." + identificador(nome)
             geom, coluna_id = identificador(dataset["geom"]), identificador(dataset["id"])
             consulta = f"""SELECT json_build_object(
                 'registros', COUNT(*), 'ids', COUNT({coluna_id}),
@@ -181,12 +181,15 @@ class Experimento:
                 ) THEN CREATE INDEX {indice} ON {tabela} USING GIST ({geom}); END IF;
                 END $pp1$;
                 ANALYZE {tabela};"""
-            self.sql(sql_indice, pasta / (nome + "_gist"))
+            if criar_gist:
+                self.sql(sql_indice, pasta / (nome + "_gist"))
+            else:
+                self.sql(f"ANALYZE {tabela};", pasta / (nome + "_analyze"))
         salvar_json(pasta / "entradas.json", registros)
 
     def exportar(self, dataset, trabalho, pasta):
         for lado, nome in zip(("a", "b"), dataset["tabelas"]):
-            tabela = "public." + identificador(nome)
+            tabela = identificador(dataset.get("schema", "public")) + "." + identificador(nome)
             geom, coluna_id = identificador(dataset["geom"]), identificador(dataset["id"])
             # ST_AsText retorna WKT em uma linha; ordem estável é necessária para BSP.
             consulta = (f"\\copy (SELECT {coluna_id}::bigint, ST_AsText({geom}) FROM {tabela} "
@@ -206,7 +209,7 @@ class Experimento:
         print(f"  Partições efetivas: {metadados['particoes_efetivas']}; alvo: {self.args.particoes}", flush=True)
         return metadados
 
-    def materializar(self, dataset, trabalho, metadados, pasta):
+    def materializar(self, dataset, trabalho, metadados, pasta, criar_gist=True):
         comandos = ["BEGIN;", f"DROP TABLE IF EXISTS {SAIDA_A} CASCADE;",
                     f"DROP TABLE IF EXISTS {SAIDA_B} CASCADE;"]
         for lado, tabela, tipo in zip(("a", "b"), (SAIDA_A, SAIDA_B), dataset["tipos"]):
@@ -223,9 +226,10 @@ class Experimento:
                 f"INSERT INTO {tabela} SELECT id, id_particao, classe, "
                 f"ST_Multi(ST_GeomFromText(wkt, {dataset['srid']})) FROM pp1_carga;",
                 "DROP TABLE pp1_carga;",
-                f"CREATE INDEX idx_tabela_{lado}_geom ON {tabela} USING GIST (geom);",
-                f"ANALYZE {tabela};",
             ])
+            if criar_gist:
+                comandos.append(f"CREATE INDEX idx_tabela_{lado}_geom ON {tabela} USING GIST (geom);")
+            comandos.append(f"ANALYZE {tabela};")
         comandos.append("COMMIT;")
         self.sql("\n".join(comandos), pasta / "materializacao")
 
@@ -250,7 +254,7 @@ class Experimento:
 
 
 def consulta_direta(dataset):
-    a, b = ("public." + identificador(t) for t in dataset["tabelas"])
+    a, b = (identificador(dataset.get("schema", "public")) + "." + identificador(t) for t in dataset["tabelas"])
     geom = identificador(dataset["geom"])
     return f"SELECT COUNT(*) FROM {a} a JOIN {b} b ON ST_Intersects(a.{geom}, b.{geom});"
 

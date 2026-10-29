@@ -67,8 +67,8 @@ def fonte_csv(caminho, metadados):
     return Fonte(caminho, tuple(colunas), metadados)
 
 
-def listar_fontes(base):
-    pastas = sorted(p for p in base.glob("pp1_*") if p.is_dir())
+def listar_fontes(base, experimento="pp1"):
+    pastas = sorted(p for p in base.glob(experimento + "_*") if p.is_dir())
     consultas, perf, avisos = [], [], []
     concluidas = 0
     for pasta in pastas:
@@ -86,7 +86,7 @@ def listar_fontes(base):
             config = {}
             avisos.append(f"{pasta.name}: metadados indisponíveis ({erro}); campos desconhecidos ficam vazios.")
         # O nome da pasta é a origem global; nunca inferir host/commit antigos da máquina atual.
-        metadados = {"pp1_run_id": pasta.name}
+        metadados = {experimento + "_run_id": pasta.name}
         for campo in ("hostname", "git_commit"):
             valor = config.get(campo)
             metadados[campo] = valor if isinstance(valor, str) else None
@@ -101,9 +101,9 @@ def listar_fontes(base):
     return pastas, concluidas, consultas, perf, avisos
 
 
-def preparar_csv(destino, nome, fontes, colunas_padrao):
+def preparar_csv(destino, nome, fontes, colunas_padrao, experimento="pp1"):
     # União estável dos cabeçalhos: mantém colunas de versões antigas e futuras.
-    colunas = list(METADADOS)
+    colunas = [experimento + "_run_id", *METADADOS[1:]]
     for fonte in fontes:
         colunas.extend(c for c in fonte.colunas if c not in colunas)
     if not fontes:
@@ -139,13 +139,15 @@ def preparar_csv(destino, nome, fontes, colunas_padrao):
     return temporario, linhas, execucoes
 
 
-def consolidar(base=Path("resultados/pp1")):
+def consolidar(base=Path("resultados/pp1"), experimento="pp1"):
+    if experimento not in ("pp1", "pp2", "pp3", "pp4"):
+        raise ValueError("Experimento desconhecido")
     base = Path(base).resolve()
-    if base.name.startswith("pp1_") and (
-        re.fullmatch(r"pp1_[0-9]{8}T[0-9]{6,}Z", base.name)
+    if base.name.startswith(experimento + "_") and (
+        re.fullmatch(experimento + r"_[0-9]{8}T[0-9]{6,}Z", base.name)
         or any((base / nome).exists() for nome in ("manifesto.json", "configuracao.json", "consultas.csv", "perf.csv"))
     ):
-        raise ErroConsolidacao("Informe a pasta que contém as execuções PP1, não uma execução bruta individual.")
+        raise ErroConsolidacao(f"Informe a pasta que contém as execuções {experimento.upper()}, não uma execução bruta individual.")
     destino = base / "acumulado"
     if destino.is_symlink():
         raise ErroConsolidacao(f"A pasta de saída não pode ser um link simbólico: {destino}")
@@ -155,13 +157,13 @@ def consolidar(base=Path("resultados/pp1")):
     # Serializa reconstruções manuais/automáticas que possam ocorrer ao mesmo tempo no Linux.
     with (destino / ".consolidacao.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        pastas, concluidas, consultas, perf, avisos = listar_fontes(base)
+        pastas, concluidas, consultas, perf, avisos = listar_fontes(base, experimento)
         temporarios = []
         try:
             consultas_tmp, linhas_consultas, execucoes_consultas = preparar_csv(
-                destino, "consultas", consultas, CONSULTAS)
+                destino, "consultas", consultas, CONSULTAS, experimento)
             temporarios.append(consultas_tmp)
-            perf_tmp, linhas_perf, execucoes_perf = preparar_csv(destino, "perf", perf, PERF)
+            perf_tmp, linhas_perf, execucoes_perf = preparar_csv(destino, "perf", perf, PERF, experimento)
             temporarios.append(perf_tmp)
             # Ambos são construídos antes de substituir qualquer acumulado existente.
             os.replace(consultas_tmp, arquivo_consultas)
@@ -173,12 +175,12 @@ def consolidar(base=Path("resultados/pp1")):
                   linhas_consultas, execucoes_perf, linhas_perf, arquivo_consultas, arquivo_perf, tuple(avisos))
 
 
-def imprimir_resumo(resumo):
-    print(f"Execuções PP1 encontradas: {resumo.encontradas}")
+def imprimir_resumo(resumo, experimento="pp1"):
+    print(f"Execuções {experimento.upper()} encontradas: {resumo.encontradas}")
     print(f"Execuções concluídas: {resumo.concluidas}")
     print(f"Execuções ignoradas: {resumo.ignoradas}")
     if not resumo.concluidas:
-        print("Não existem resultados PP1 concluídos para consolidar; foram criados CSVs apenas com cabeçalhos.")
+        print(f"Não existem resultados {experimento.upper()} concluídos para consolidar; foram criados CSVs apenas com cabeçalhos.")
     print(f"\nconsultas_acumulado.csv:\n  execuções: {resumo.execucoes_consultas}\n  linhas: {resumo.linhas_consultas}")
     print(f"\nperf_acumulado.csv:\n  execuções com perf: {resumo.execucoes_perf}\n  linhas: {resumo.linhas_perf}")
     print(f"\nArquivos:\n  {resumo.arquivo_consultas}\n  {resumo.arquivo_perf}")
