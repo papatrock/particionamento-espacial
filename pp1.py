@@ -18,6 +18,7 @@ from perf_coleta import argumentos_perf, verificar_perf
 
 RAIZ = Path(__file__).resolve().parent
 ALGORITMOS = ("SEM_PARTICIONAMENTO", "TWO_LAYER", "STR", "HILBERT", "BSP")
+MODELO_PP1 = "str_hilbert_samj_v1"
 SAIDA_A = 'public."tabela_a_particionada"'
 SAIDA_B = 'public."tabela_b_particionada"'
 DATASETS = {
@@ -199,14 +200,20 @@ class Experimento:
                         f"{literal(trabalho / (lado + '.tsv'))}")
             self.sql(consulta, pasta / (lado + "_exportacao"))
 
-    def particionar(self, algoritmo, entradas, trabalho, pasta):
+    def particionar(self, algoritmo, entradas, trabalho, pasta, associacao_unica=False):
         comando = ["mvn", "-q", "exec:java", "-Dexec.mainClass=benchmark.ParticionamentoRunner",
                    f"-Dpp1.algoritmo={algoritmo}", f"-Dpp1.particoes={self.args.particoes}",
                    f"-Dpp1.hilbertBits={self.args.hilbert_bits}", f"-Dpp1.bspTentativas={self.args.bsp_tentativas}",
                    f"-Dpp1.entradaA={entradas / 'a.tsv'}", f"-Dpp1.entradaB={entradas / 'b.tsv'}",
                    f"-Dpp1.saida={trabalho}"]
+        if associacao_unica:
+            if algoritmo not in ("STR", "HILBERT"):
+                raise ValueError("Associação única disponível somente para STR e Hilbert")
+            comando.append("-Dpp1.modeloJoin=SAMJ")
         self.processo(comando, pasta / "java.log")
         metadados = json.loads((trabalho / "particionamento.json").read_text(encoding="utf-8"))
+        if associacao_unica and metadados.get("modelo_join") != "SAMJ":
+            raise RuntimeError("O runner não retornou o modelo SAMJ solicitado")
         salvar_json(pasta / "particionamento.json", metadados)
         print(f"  Partições efetivas: {metadados['particoes_efetivas']}; alvo: {self.args.particoes}", flush=True)
         return metadados
@@ -266,7 +273,29 @@ def consulta_direta(dataset):
     return f"SELECT COUNT(*) FROM {a} a JOIN {b} b ON ST_Intersects(a.{geom}, b.{geom});"
 
 
-def consulta_particionada(algoritmo):
+def consulta_particionada(algoritmo, metadados=None):
+    if metadados and metadados.get("modelo_join") == "SAMJ":
+        if algoritmo not in ("STR", "HILBERT"):
+            raise ValueError("Join SAMJ disponível somente para STR e Hilbert")
+        ids = {ocupacao["id"] for ocupacao in metadados["ocupacoes"]}
+        pares = []
+        for par in metadados["pares_particoes"]:
+            a, b = par["a"], par["b"]
+            if type(a) is not int or type(b) is not int or a <= 0 or b <= 0 or a not in ids or b not in ids:
+                raise ValueError("Par de partições SAMJ inválido")
+            pares.append((a, b))
+        if len(pares) != len(set(pares)):
+            raise ValueError("Pares de partições SAMJ duplicados")
+        if not pares:
+            return "SELECT 0::bigint;"
+        # Cada objeto tem um único grupo e cada par de grupos aparece uma vez.
+        # Joins nas tabelas filhas garantem que só os pares candidatos sejam lidos.
+        consultas = [
+            f"SELECT COUNT(*) AS total FROM public.tabela_a_p{a} a "
+            f"JOIN public.tabela_b_p{b} b ON ST_Intersects(a.geom, b.geom)"
+            for a, b in sorted(pares)
+        ]
+        return "SELECT SUM(total)::bigint FROM (\n" + "\nUNION ALL\n".join(consultas) + "\n) pares;"
     condicao = "a.id_particao = b.id_particao AND ST_Intersects(a.geom, b.geom)"
     if algoritmo == "TWO_LAYER":
         classes = "(a.classe = 'A' OR b.classe = 'A' OR (a.classe = 'B' AND b.classe = 'C') OR (a.classe = 'C' AND b.classe = 'B'))"
@@ -285,7 +314,8 @@ def executar(args):
         return
     pasta = args.saida.resolve() / ("pp1_" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ"))
     pasta.mkdir(parents=True, exist_ok=False)
-    config = {**vars(args), "saida": str(pasta), "indexacao": "on", **metadados_execucao(pasta.name)}
+    config = {**vars(args), "saida": str(pasta), "indexacao": "on", "modelo_pp1": MODELO_PP1,
+              **metadados_execucao(pasta.name)}
     salvar_json(pasta / "configuracao.json", config)
     experimento = Experimento(args, pasta)
     manifesto = {"status": "em_execucao", "combinacoes": []}
@@ -322,14 +352,18 @@ def executar(args):
                         consulta = consulta_direta(dataset)
                         if algoritmo != "SEM_PARTICIONAMENTO":
                             with tempfile.TemporaryDirectory(prefix=".associacoes-", dir=caso) as trabalho:
-                                metadata = experimento.particionar(algoritmo, entradas, Path(trabalho), caso)
+                                metadata = experimento.particionar(
+                                    algoritmo, entradas, Path(trabalho), caso,
+                                    associacao_unica=algoritmo in ("STR", "HILBERT"))
                                 experimento.materializar(dataset, Path(trabalho), metadata, caso, normalizar_multi=False)
-                            consulta = consulta_particionada(algoritmo)
+                            consulta = consulta_particionada(algoritmo, metadata)
                         medicoes = experimento.medir(dataset, algoritmo, consulta, esperado, caso)
                         with medicoes.open(newline="", encoding="utf-8") as arquivo:
                             for linha in csv.DictReader(arquivo):
                                 linha.update(dataset=nome, particoes_alvo=args.particoes if algoritmo != "SEM_PARTICIONAMENTO" else "",
-                                             particoes_efetivas=metadata["particoes_efetivas"], capacidade=metadata["capacidade"])
+                                             particoes_efetivas=metadata["particoes_efetivas"], capacidade=metadata["capacidade"],
+                                             modelo_pp1=MODELO_PP1,
+                                             modelo_join=metadata.get("modelo_join", "DIRETO"))
                                 if writer is None:
                                     writer = csv.DictWriter(consolidado, fieldnames=list(linha))
                                     writer.writeheader()
@@ -346,6 +380,7 @@ def executar(args):
                     with arquivo_perf.open(newline="", encoding="utf-8") as arquivo:
                         for linha in csv.DictReader(arquivo):
                             linha["dataset"] = arquivo_perf.relative_to(pasta).parts[0]
+                            linha["modelo_pp1"] = MODELO_PP1
                             if writer_perf is None:
                                 writer_perf = csv.DictWriter(consolidado, fieldnames=list(linha))
                                 writer_perf.writeheader()

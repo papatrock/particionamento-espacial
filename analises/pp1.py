@@ -28,6 +28,10 @@ def analisar(resultados=RESULTADOS_PADRAO):
     RESUMOS.mkdir(parents=True, exist_ok=True)
 
     df = pd.read_csv(ARQUIVO)
+    # A ausência do campo identifica as coletas anteriores à migração SAMJ.
+    if "modelo_pp1" not in df:
+        df["modelo_pp1"] = "legado_masj"
+    df["modelo_pp1"] = df["modelo_pp1"].fillna("legado_masj").replace("", "legado_masj")
 
     # Garantir tipo numérico.
     df["tempo_cliente_ms"] = pd.to_numeric(
@@ -53,7 +57,7 @@ def analisar(resultados=RESULTADOS_PADRAO):
     # =========================================================
 
     resumo = (
-        df.groupby(["dataset", "cenario", "algoritmo"])["tempo_cliente_ms"]
+        df.groupby(["modelo_pp1", "dataset", "cenario", "algoritmo"])["tempo_cliente_ms"]
         .agg(
             n="count",
             media_ms="mean",
@@ -81,8 +85,8 @@ def analisar(resultados=RESULTADOS_PADRAO):
 
     speedups = []
 
-    for (dataset, cenario), grupo in resumo.groupby(
-        ["dataset", "cenario"]
+    for (modelo, dataset, cenario), grupo in resumo.groupby(
+        ["modelo_pp1", "dataset", "cenario"]
     ):
         baseline = grupo[
             grupo["algoritmo"] == "SEM_PARTICIONAMENTO"
@@ -95,6 +99,7 @@ def analisar(resultados=RESULTADOS_PADRAO):
 
         for _, linha in grupo.iterrows():
             speedups.append({
+                "modelo_pp1": modelo,
                 "dataset": dataset,
                 "cenario": cenario,
                 "algoritmo": linha["algoritmo"],
@@ -103,7 +108,7 @@ def analisar(resultados=RESULTADOS_PADRAO):
             })
 
     speedup_df = pd.DataFrame(speedups, columns=[
-        "dataset", "cenario", "algoritmo", "media_ms", "speedup"
+        "modelo_pp1", "dataset", "cenario", "algoritmo", "media_ms", "speedup"
     ])
 
     speedup_df.to_csv(
@@ -116,9 +121,11 @@ def analisar(resultados=RESULTADOS_PADRAO):
     # GRÁFICOS POR CENÁRIO
     # =========================================================
 
-    for (dataset, cenario), grupo in df.groupby(
-        ["dataset", "cenario"]
+    for (modelo, dataset, cenario), grupo in df.groupby(
+        ["modelo_pp1", "dataset", "cenario"]
     ):
+
+        sufixo = "" if modelo == "legado_masj" else "_" + str(modelo)
 
         presentes = [
             algoritmo
@@ -149,17 +156,17 @@ def analisar(resultados=RESULTADOS_PADRAO):
         plt.ylabel("Tempo de execução (ms)")
         plt.xlabel("Estratégia de particionamento")
         plt.title(
-            f"Tempo de execução — {dataset} / {cenario}"
+            f"Tempo de execução — {dataset} / {cenario} / {modelo}"
         )
 
         plt.xticks(rotation=25)
         plt.tight_layout()
 
         plt.savefig(
-            SAIDA / f"tempo_boxplot_{dataset}_{cenario}.pdf"
+            SAIDA / f"tempo_boxplot_{dataset}_{cenario}{sufixo}.pdf"
         )
         plt.savefig(
-            SAIDA / f"tempo_boxplot_{dataset}_{cenario}.png",
+            SAIDA / f"tempo_boxplot_{dataset}_{cenario}{sufixo}.png",
             dpi=300
         )
 
@@ -188,17 +195,17 @@ def analisar(resultados=RESULTADOS_PADRAO):
         plt.ylabel("Tempo médio (ms)")
         plt.xlabel("Estratégia de particionamento")
         plt.title(
-            f"Tempo médio — {dataset} / {cenario}"
+            f"Tempo médio — {dataset} / {cenario} / {modelo}"
         )
 
         plt.xticks(rotation=25)
         plt.tight_layout()
 
         plt.savefig(
-            SAIDA / f"tempo_medio_{dataset}_{cenario}.pdf"
+            SAIDA / f"tempo_medio_{dataset}_{cenario}{sufixo}.pdf"
         )
         plt.savefig(
-            SAIDA / f"tempo_medio_{dataset}_{cenario}.png",
+            SAIDA / f"tempo_medio_{dataset}_{cenario}{sufixo}.png",
             dpi=300
         )
 
@@ -210,7 +217,8 @@ def analisar(resultados=RESULTADOS_PADRAO):
         # -----------------------------------------------------
 
         s = speedup_df[
-            (speedup_df["dataset"] == dataset)
+            (speedup_df["modelo_pp1"] == modelo)
+            & (speedup_df["dataset"] == dataset)
             & (speedup_df["cenario"] == cenario)
         ].copy()
 
@@ -236,17 +244,17 @@ def analisar(resultados=RESULTADOS_PADRAO):
             plt.ylabel("Speedup em relação ao baseline")
             plt.xlabel("Estratégia de particionamento")
             plt.title(
-                f"Speedup — {dataset} / {cenario}"
+                f"Speedup — {dataset} / {cenario} / {modelo}"
             )
 
             plt.xticks(rotation=25)
             plt.tight_layout()
 
             plt.savefig(
-                SAIDA / f"speedup_{dataset}_{cenario}.pdf"
+                SAIDA / f"speedup_{dataset}_{cenario}{sufixo}.pdf"
             )
             plt.savefig(
-                SAIDA / f"speedup_{dataset}_{cenario}.png",
+                SAIDA / f"speedup_{dataset}_{cenario}{sufixo}.png",
                 dpi=300
             )
 

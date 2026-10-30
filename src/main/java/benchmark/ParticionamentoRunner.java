@@ -9,6 +9,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.HashMap;
+import org.locationtech.jts.io.WKTReader;
+import org.locationtech.jts.index.strtree.STRtree;
 
 /** Runner compartilhado pelas PPs: lê COPY TSV, aplica os algoritmos e exporta associações, sem JDBC. */
 public final class ParticionamentoRunner {
@@ -20,6 +23,11 @@ public final class ParticionamentoRunner {
         int alvo = Integer.parseInt(obrigatoria("pp1.particoes"));
         int bits = Integer.parseInt(System.getProperty("pp1.hilbertBits", "16"));
         int tentativas = Integer.parseInt(System.getProperty("pp1.bspTentativas", "8"));
+        String modelo = System.getProperty("pp1.modeloJoin", "MASJ");
+        boolean samj = modelo.equals("SAMJ");
+        if (!modelo.equals("MASJ") && !samj) throw new IllegalArgumentException("Modelo de join inválido");
+        if (samj && estrategia != EstrategiaExecucao.STR && estrategia != EstrategiaExecucao.HILBERT)
+            throw new IllegalArgumentException("SAMJ disponível somente para STR e Hilbert");
         if (alvo < 1 || tentativas < 1) throw new IllegalArgumentException("Alvo e tentativas devem ser positivos");
         var a = ler(Path.of(obrigatoria("pp1.entradaA")));
         var b = ler(Path.of(obrigatoria("pp1.entradaB")));
@@ -29,6 +37,7 @@ public final class ParticionamentoRunner {
         int capacidade = (int) Math.max(1, (n + alvo - 1) / alvo);
         SpatialPartitioner particionador;
         List<ParticaoMetadata> grade;
+        ParticionamentoConjunto conjunto = null;
         String calibracao = "[]";
         switch (estrategia) {
             case TWO_LAYER -> {
@@ -41,12 +50,14 @@ public final class ParticionamentoRunner {
             case STR -> {
                 var algoritmo = new SortTileRecursive(capacidade);
                 particionador = algoritmo;
-                grade = algoritmo.criarGrade(a.wkts, b.wkts);
+                if (samj) conjunto = algoritmo.processarConjunto(a.wkts, b.wkts);
+                grade = samj ? conjunto.grade() : algoritmo.criarGrade(a.wkts, b.wkts);
             }
             case HILBERT -> {
                 var algoritmo = new HilbertCurvePartitioner(capacidade, bits);
                 particionador = algoritmo;
-                grade = algoritmo.criarGrade(a.wkts, b.wkts);
+                if (samj) conjunto = algoritmo.processarConjunto(a.wkts, b.wkts);
+                grade = samj ? conjunto.grade() : algoritmo.criarGrade(a.wkts, b.wkts);
             }
             case BSP -> {
                 var escolha = calibrarBsp(a.wkts, b.wkts, alvo, capacidade, tentativas);
@@ -57,21 +68,25 @@ public final class ParticionamentoRunner {
             }
             default -> throw new IllegalArgumentException("Estratégia não particionada ou não suportada: " + estrategia);
         }
-        long[] ocupacaoA = salvar(saida.resolve("a.tsv"), a, particionador.processar(a.wkts, grade));
-        long[] ocupacaoB = salvar(saida.resolve("b.tsv"), b, particionador.processar(b.wkts, grade));
+        var resultadoA = samj ? conjunto.a() : particionador.processar(a.wkts, grade);
+        long[] ocupacaoA = salvar(saida.resolve("a.tsv"), a, resultadoA, grade.size());
+        var resultadoB = samj ? conjunto.b() : particionador.processar(b.wkts, grade);
+        long[] ocupacaoB = salvar(saida.resolve("b.tsv"), b, resultadoB, grade.size());
+        String plano = samj ? planoSamj(conjunto) : "";
         var ocupacoes = new ArrayList<String>();
         for (int i = 0; i < grade.size(); i++) {
             ocupacoes.add("{\"id\":" + grade.get(i).getIdParticao()
                     + ",\"objetos_a\":" + ocupacaoA[i] + ",\"objetos_b\":" + ocupacaoB[i] + "}");
         }
         String json = "{\"algoritmo\":\"" + estrategia + "\",\"particoes_alvo\":" + alvo
+                + ",\"modelo_join\":\"" + modelo + "\""
                 + ",\"particoes_efetivas\":" + grade.size()
                 + ",\"capacidade\":" + (estrategia == EstrategiaExecucao.TWO_LAYER ? "null" : capacidade)
                 + ",\"hilbert_bits\":" + (estrategia == EstrategiaExecucao.HILBERT ? bits : "null")
                 + ",\"objetos_a\":" + a.ids.size() + ",\"objetos_b\":" + b.ids.size()
-                + ",\"calibracao_bsp\":" + calibracao + ",\"ocupacoes\":[" + String.join(",", ocupacoes) + "]}";
+                + ",\"calibracao_bsp\":" + calibracao + ",\"ocupacoes\":[" + String.join(",", ocupacoes) + "]" + plano + "}";
         Files.writeString(saida.resolve("particionamento.json"), json + "\n", StandardCharsets.UTF_8);
-        System.out.println("Preparado " + estrategia + ": " + grade.size() + " partições; alvo=" + alvo);
+        System.out.println("Preparado " + estrategia.name() + " / " + modelo + ": " + grade.size() + " partições; alvo=" + alvo);
     }
 
     private static String obrigatoria(String nome) {
@@ -95,12 +110,17 @@ public final class ParticionamentoRunner {
         return new Entrada(ids, wkts);
     }
 
-    private static long[] salvar(Path arquivo, Entrada entrada, ResultadoParticionamento resultado) throws Exception {
-        long[] ocupacao = new long[resultado.getGrades().size()];
+    private static long[] salvar(Path arquivo, Entrada entrada, ResultadoParticionamento resultado, int particoes) throws Exception {
+        long[] ocupacao = new long[particoes];
+        boolean[] vistos = resultado.isAssociacaoUnica() ? new boolean[entrada.ids.size()] : null;
         try (BufferedWriter writer = Files.newBufferedWriter(arquivo, StandardCharsets.UTF_8)) {
             for (var objeto : resultado.getDados()) {
                 int origem = objeto.getIndiceOrigem();
                 if (origem < 0) throw new IllegalStateException("Associação sem índice de origem");
+                if (vistos != null) {
+                    if (vistos[origem]) throw new IllegalStateException("Objeto associado a mais de um grupo SAMJ");
+                    vistos[origem] = true;
+                }
                 ocupacao[objeto.getIdParticao() - 1]++;
                 writer.write(entrada.ids.get(origem) + "\t" + objeto.getIdParticao()
                         + "\t" + objeto.getClasse().name() + "\t" + objeto.getWkt());
@@ -109,6 +129,36 @@ public final class ParticionamentoRunner {
         }
         return ocupacao;
     }
+
+    /** Persiste envelopes por relação e pares únicos; pontos/linhas e contatos são conservados. */
+    private static String planoSamj(ParticionamentoConjunto conjunto) throws Exception {
+        var a = new HashMap<Integer, String>();
+        var b = new HashMap<Integer, String>();
+        var indice = new STRtree();
+        var reader = new WKTReader();
+        for (var meta : conjunto.a().getGrades()) a.put(meta.getIdParticao(), meta.getWktFronteira());
+        for (var meta : conjunto.b().getGrades()) {
+            b.put(meta.getIdParticao(), meta.getWktFronteira());
+            indice.insert(reader.read(meta.getWktFronteira()).getEnvelopeInternal(), meta.getIdParticao());
+        }
+        indice.build();
+        var pares = new ArrayList<String>();
+        for (var meta : conjunto.a().getGrades()) {
+            var destinos = new ArrayList<Integer>();
+            indice.query(reader.read(meta.getWktFronteira()).getEnvelopeInternal(), item -> destinos.add((Integer) item));
+            destinos.sort(Integer::compareTo);
+            for (int destino : destinos) pares.add("{\"a\":" + meta.getIdParticao() + ",\"b\":" + destino + "}");
+        }
+        var fronteiras = new ArrayList<String>();
+        for (var meta : conjunto.grade()) fronteiras.add("{\"id\":" + meta.getIdParticao()
+                + ",\"mbr\":" + wktJson(meta.getWktFronteira())
+                + ",\"mbr_a\":" + wktJson(a.get(meta.getIdParticao()))
+                + ",\"mbr_b\":" + wktJson(b.get(meta.getIdParticao())) + "}");
+        return ",\"fronteiras\":[" + String.join(",", fronteiras)
+                + "],\"pares_particoes\":[" + String.join(",", pares) + "]";
+    }
+
+    private static String wktJson(String wkt) { return wkt == null ? "null" : "\"" + wkt + "\""; }
 
     /** Busca limitada por capacidade; a replicação impede prometer monotonicidade ou 64 folhas. */
     private static GradeBsp calibrarBsp(List<String> a, List<String> b, int alvo, int inicial, int limite) throws Exception {

@@ -1,13 +1,11 @@
 package benchmark.algoritmos;
 
 import benchmark.ParticaoMetadata;
+import benchmark.ParticionamentoConjunto;
+import benchmark.algoritmos.AgrupamentoDop.Objeto;
 import benchmark.ResultadoParticionamento;
 import benchmark.SpatialPartitioner;
-import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.Envelope;
-import org.locationtech.jts.geom.Geometry;
-import org.locationtech.jts.geom.GeometryFactory;
-import org.locationtech.jts.io.WKTReader;
 import org.locationtech.jts.shape.fractal.HilbertCode;
 
 import java.util.ArrayList;
@@ -18,8 +16,8 @@ import java.util.List;
  * Hilbert Curve Partitioning (HC), conforme Aji, Vo e Wang, seção 4.2:
  * https://arxiv.org/abs/1509.00910.
  * Ordena centroides geométricos pela curva e cria MBRs de grupos de até b objetos.
- * Não constrói uma Hilbert R-tree. Para joins, usa molde comum a A e B completas,
- * replicação por interseção de MBRs e deduplicação dos pares no SQL.
+ * Não constrói uma Hilbert R-tree. processarConjunto preserva os grupos de A+B
+ * para SAMJ; processar(wkts, molde) mantém a associação múltipla legada (MASJ).
  */
 public final class HilbertCurvePartitioner implements SpatialPartitioner {
     public static final int CAPACIDADE_PADRAO = 1000;
@@ -38,33 +36,31 @@ public final class HilbertCurvePartitioner implements SpatialPartitioner {
         this.bits = bits;
     }
 
-    private record Objeto(Envelope mbr, double x, double y) { }
     private record Chave(Objeto objeto, long valor) { }
 
     /** O domínio de normalização é o envelope conjunto das geometrias de A e B. */
     public List<ParticaoMetadata> criarGrade(List<String> a, List<String> b) throws Exception {
-        var objetos = new ArrayList<Objeto>();
+        return construir(a, b, false).grade();
+    }
+
+    /** Uma associação por objeto, preservada desde a ordenação Hilbert. */
+    @Override
+    public ParticionamentoConjunto processarConjunto(List<String> a, List<String> b) throws Exception {
+        return construir(a, b, true);
+    }
+
+    private ParticionamentoConjunto construir(List<String> a, List<String> b, boolean preservarMembros) throws Exception {
+        var objetos = AgrupamentoDop.ler(a, b, true);
+        var grupos = new AgrupamentoDop(a, b, preservarMembros);
+        if (objetos.isEmpty()) return grupos.resultado();
         Envelope dominio = new Envelope();
-        WKTReader reader = new WKTReader();
-        for (var entrada : List.of(a, b)) {
-            for (String wkt : entrada) {
-                Geometry geom = ParticionamentoPorMbr.ler(reader, wkt);
-                if (geom.isEmpty()) continue;
-                Coordinate centro = geom.getCentroid().getCoordinate();
-                if (centro == null || !Double.isFinite(centro.x) || !Double.isFinite(centro.y))
-                    throw new IllegalArgumentException("Centroide Hilbert não finito");
-                Envelope mbr = geom.getEnvelopeInternal();
-                dominio.expandToInclude(mbr);
-                objetos.add(new Objeto(mbr, centro.x, centro.y));
-            }
-        }
-        if (objetos.isEmpty()) return List.of();
+        for (Objeto objeto : objetos) dominio.expandToInclude(objeto.mbr());
 
         int max = (1 << bits) - 1;
         var chaves = new ArrayList<Chave>(objetos.size());
         for (Objeto objeto : objetos) {
-            int x = quantizar(objeto.x, dominio.getMinX(), dominio.getMaxX(), max);
-            int y = quantizar(objeto.y, dominio.getMinY(), dominio.getMaxY(), max);
+            int x = quantizar(objeto.x(), dominio.getMinX(), dominio.getMaxX(), max);
+            int y = quantizar(objeto.y(), dominio.getMinY(), dominio.getMaxY(), max);
             // O índice JTS tem 32 bits sem sinal no nível 16; comparar como int seria incorreto.
             long valor = Integer.toUnsignedLong(HilbertCode.encode(bits, x, y));
             chaves.add(new Chave(objeto, valor));
@@ -72,22 +68,20 @@ public final class HilbertCurvePartitioner implements SpatialPartitioner {
         // Desempate espacial torna as fronteiras independentes da ordem de leitura do banco.
         // Objetos com centro e MBR idênticos são intercambiáveis para formar as fronteiras.
         chaves.sort(Comparator.comparingLong(Chave::valor)
-                .thenComparingDouble(c -> c.objeto.x).thenComparingDouble(c -> c.objeto.y)
-                .thenComparingDouble(c -> c.objeto.mbr.getMinX())
-                .thenComparingDouble(c -> c.objeto.mbr.getMinY())
-                .thenComparingDouble(c -> c.objeto.mbr.getMaxX())
-                .thenComparingDouble(c -> c.objeto.mbr.getMaxY()));
+                .thenComparingDouble(c -> c.objeto.x()).thenComparingDouble(c -> c.objeto.y())
+                .thenComparingDouble(c -> c.objeto.mbr().getMinX())
+                .thenComparingDouble(c -> c.objeto.mbr().getMinY())
+                .thenComparingDouble(c -> c.objeto.mbr().getMaxX())
+                .thenComparingDouble(c -> c.objeto.mbr().getMaxY()));
 
-        GeometryFactory factory = new GeometryFactory();
-        var molde = new ArrayList<ParticaoMetadata>();
         for (int inicio = 0; inicio < chaves.size();) {
             int fim = (int) Math.min(chaves.size(), inicio + (long) capacidade);
-            Envelope mbr = new Envelope();
-            for (int i = inicio; i < fim; i++) mbr.expandToInclude(chaves.get(i).objeto.mbr);
-            molde.add(new ParticaoMetadata(molde.size() + 1, factory.toGeometry(mbr).toText()));
+            var membros = new ArrayList<Objeto>(fim - inicio);
+            for (int i = inicio; i < fim; i++) membros.add(chaves.get(i).objeto);
+            grupos.adicionarGrupo(membros);
             inicio = fim;
         }
-        return List.copyOf(molde);
+        return grupos.resultado();
     }
 
     /** Normaliza cada eixo separadamente; eixo degenerado fica em zero. */
