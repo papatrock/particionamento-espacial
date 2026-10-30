@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 ORDEM = ["SEM_PARTICIONAMENTO", "TWO_LAYER", "STR", "HILBERT", "BSP"]
 CHAVE = ["pp1_run_id", "execucao", "dataset", "cenario", "algoritmo", "rodada"]
 METADADOS = ["hostname", "git_commit", "git_dirty"]
-CONFIGURACAO = ["workers_por_gather", "indexacao", "particoes_alvo", "perf"]
+CONFIGURACAO = ["workers_por_gather", "indexacao", "particoes_alvo", "perf", "modelo_pp1"]
 CONTEXTO = CHAVE + METADADOS + CONFIGURACAO + ["escopo", "repeticoes"]
 SOFTWARE = {"context-switches", "cpu-migrations", "page-faults"}
 INDICADORES = {

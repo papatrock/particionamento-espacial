@@ -1,14 +1,11 @@
 package benchmark.algoritmos;
 
 import benchmark.ParticaoMetadata;
+import benchmark.ParticionamentoConjunto;
+import benchmark.algoritmos.AgrupamentoDop.Objeto;
 import benchmark.ResultadoParticionamento;
 import benchmark.SpatialPartitioner;
-import org.locationtech.jts.geom.Envelope;
-import org.locationtech.jts.geom.Geometry;
-import org.locationtech.jts.geom.GeometryFactory;
-import org.locationtech.jts.io.WKTReader;
 
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
@@ -21,9 +18,9 @@ import java.util.List;
  * https://doi.org/10.1109/ICDE.1997.582015; Aji, Vo e Wang,
  * https://arxiv.org/abs/1509.00910 (seção 4.2).
  *
- * A capacidade limita os grupos que definem as fronteiras. A associação final
- * replica por interseção de MBRs, podendo exceder essa capacidade. O join deve
- * eliminar pares de IDs duplicados. MBRs podem se sobrepor e deixar lacunas.
+ * processarConjunto preserva os membros de cada grupo (SAMJ), com capacidade
+ * combinada de A+B. O contrato legado processar(wkts, molde) continua replicando
+ * por MBR (MASJ), para os demais experimentos. MBRs podem se sobrepor e deixar lacunas.
  */
 public class SortTileRecursive implements SpatialPartitioner {
     private static final boolean DEBUG = Boolean.getBoolean("str.debug");
@@ -39,15 +36,19 @@ public class SortTileRecursive implements SpatialPartitioner {
 
     /** Para joins, construa um único molde com ambas as relações completas. */
     public List<ParticaoMetadata> criarGrade(List<String> a, List<String> b) throws Exception {
-        List<Envelope> objetos = new ArrayList<>();
-        WKTReader reader = new WKTReader();
-        for (List<String> entrada : List.of(a, b)) {
-            for (String wkt : entrada) {
-                Geometry geom = ler(reader, wkt);
-                if (!geom.isEmpty()) objetos.add(geom.getEnvelopeInternal());
-            }
-        }
-        if (objetos.isEmpty()) return List.of();
+        return construir(a, b, false).grade();
+    }
+
+    /** Associação única: o membro mantém o grupo em que foi colocado pela ordenação STR. */
+    @Override
+    public ParticionamentoConjunto processarConjunto(List<String> a, List<String> b) throws Exception {
+        return construir(a, b, true);
+    }
+
+    private ParticionamentoConjunto construir(List<String> a, List<String> b, boolean preservarMembros) throws Exception {
+        List<Objeto> objetos = AgrupamentoDop.ler(a, b, false);
+        var grupos = new AgrupamentoDop(a, b, preservarMembros);
+        if (objetos.isEmpty()) return grupos.resultado();
 
         int particoes = (int) ((objetos.size() + (long) capacidade - 1) / capacidade);
         int faixas = (int) Math.ceil(Math.sqrt(particoes));
@@ -63,28 +64,22 @@ public class SortTileRecursive implements SpatialPartitioner {
             System.out.println("m * b (tamanho da faixa): " + tamanhoFaixa);
         }
 
-        objetos.sort(Comparator.comparingDouble(SortTileRecursive::centroX)
-                .thenComparingDouble(SortTileRecursive::centroY));
+        objetos.sort(Comparator.comparingDouble(Objeto::x)
+                .thenComparingDouble(Objeto::y));
 
-        Comparator<Envelope> porY = Comparator.comparingDouble(SortTileRecursive::centroY)
-                .thenComparingDouble(SortTileRecursive::centroX);
-        GeometryFactory factory = new GeometryFactory();
-
-        List<ParticaoMetadata> molde = new ArrayList<>(particoes);
+        Comparator<Objeto> porY = Comparator.comparingDouble(Objeto::y)
+                .thenComparingDouble(Objeto::x);
         for (int inicio = 0; inicio < objetos.size();) {
             int fim = (int) Math.min(objetos.size(), inicio + tamanhoFaixa);
             objetos.subList(inicio, fim).sort(porY);
             for (int grupo = inicio; grupo < fim;) {
                 int fimGrupo = (int) Math.min(fim, grupo + (long) capacidade);
-                Envelope mbr = new Envelope();
-                for (int i = grupo; i < fimGrupo; i++) mbr.expandToInclude(objetos.get(i));
-                // Pontos/linhas são MBRs válidos; não se adiciona área artificial.
-                molde.add(new ParticaoMetadata(molde.size() + 1, factory.toGeometry(mbr).toText()));
+                grupos.adicionarGrupo(objetos.subList(grupo, fimGrupo));
                 grupo = fimGrupo;
             }
             inicio = fim;
         }
-        return List.copyOf(molde);
+        return grupos.resultado();
     }
 
     @Override
@@ -98,10 +93,4 @@ public class SortTileRecursive implements SpatialPartitioner {
         return ParticionamentoPorMbr.processar(wkts, molde, "STR");
     }
 
-    private static double centroX(Envelope mbr) { return mbr.getMinX() / 2 + mbr.getMaxX() / 2; }
-    private static double centroY(Envelope mbr) { return mbr.getMinY() / 2 + mbr.getMaxY() / 2; }
-
-    private static Geometry ler(WKTReader reader, String wkt) throws Exception {
-        return ParticionamentoPorMbr.ler(reader, wkt);
-    }
 }
