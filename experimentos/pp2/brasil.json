@@ -3,8 +3,8 @@
   "srid": 3857,
   "relacoes": {
     "pontos": {"schema": "public", "tabela": "brasil_point", "id": "osm_id", "geom": "geom"},
-    "linhas": {"schema": "public", "tabela": "brasil_line", "id": "osm_id", "geom": "geom"},
-    "poligonos_a": {"schema": "public", "tabela": "brasil_polygon", "id": "osm_id", "geom": "geom"},
-    "poligonos_b": {"schema": "public", "tabela": "brasil_polygon", "id": "osm_id", "geom": "geom"}
+    "linhas": {"schema": "public", "tabela": "brasil_line", "id": "benchmark_id", "geom": "geom"},
+    "poligonos_a": {"schema": "public", "tabela": "brasil_polygon", "id": "benchmark_id", "geom": "geom"},
+    "poligonos_b": {"schema": "public", "tabela": "brasil_polygon", "id": "benchmark_id", "geom": "geom"}
   }
 }
