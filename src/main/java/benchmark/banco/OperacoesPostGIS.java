@@ -51,17 +51,23 @@ public final class OperacoesPostGIS {
     /** Substitui apenas as saídas compartilhadas, com rollback se qualquer etapa falhar. */
     public void substituirSaidas(CenarioTeste cenario, DadosEspaciais a, DadosEspaciais b,
                                  ResultadoParticionamento resA, ResultadoParticionamento resB) throws SQLException {
+        substituirSaidas(cenario, a, b, resA, resB, resA.getGrades());
+    }
+
+    public void substituirSaidas(CenarioTeste cenario, DadosEspaciais a, DadosEspaciais b,
+                                 ResultadoParticionamento resA, ResultadoParticionamento resB,
+                                 List<ParticaoMetadata> grade) throws SQLException {
         validarEntrada(cenario.datasetA());
         validarEntrada(cenario.datasetB());
         conn.setAutoCommit(false);
         try {
-            recriar(cenario, resA.getGrades());
+            recriar(cenario, grade);
             salvar(SAIDA_A, cenario.datasetA().srid(), a.ids(), resA.getDados());
             salvar(SAIDA_B, cenario.datasetB().srid(), b.ids(), resB.getDados());
             if (DEBUG) {
                 try (PreparedStatement stmt = conn.prepareStatement("INSERT INTO " + GRADE
                         + " (id_particao, geom) VALUES (?, ST_Multi(ST_GeomFromText(?, ?)))")) {
-                    for (ParticaoMetadata meta : resA.getGrades()) {
+                    for (ParticaoMetadata meta : grade) {
                         stmt.setInt(1, meta.getIdParticao());
                         stmt.setString(2, meta.getWktFronteira());
                         stmt.setInt(3, cenario.datasetA().srid());
@@ -149,6 +155,12 @@ public final class OperacoesPostGIS {
         }
         return medir("SELECT COUNT(*) FROM " + SAIDA_A + " a JOIN " + SAIDA_B
                 + " b ON " + TwoLayerPartitioner.condicaoJoinSql("a", "b"));
+    }
+
+    public MedicaoJoin joinSamj(PlanoSamj plano) throws SQLException {
+        analisar(SAIDA_A, SAIDA_B);
+        String sql = plano.consulta();
+        return medir(sql);
     }
 
     private void analisar(String a, String b) throws SQLException {
