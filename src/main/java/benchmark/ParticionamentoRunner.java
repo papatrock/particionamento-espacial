@@ -10,8 +10,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.HashMap;
-import org.locationtech.jts.io.WKTReader;
-import org.locationtech.jts.index.strtree.STRtree;
 
 /** Runner compartilhado pelas PPs: lê COPY TSV, aplica os algoritmos e exporta associações, sem JDBC. */
 public final class ParticionamentoRunner {
@@ -134,20 +132,13 @@ public final class ParticionamentoRunner {
     private static String planoSamj(ParticionamentoConjunto conjunto) throws Exception {
         var a = new HashMap<Integer, String>();
         var b = new HashMap<Integer, String>();
-        var indice = new STRtree();
-        var reader = new WKTReader();
         for (var meta : conjunto.a().getGrades()) a.put(meta.getIdParticao(), meta.getWktFronteira());
         for (var meta : conjunto.b().getGrades()) {
             b.put(meta.getIdParticao(), meta.getWktFronteira());
-            indice.insert(reader.read(meta.getWktFronteira()).getEnvelopeInternal(), meta.getIdParticao());
         }
-        indice.build();
         var pares = new ArrayList<String>();
-        for (var meta : conjunto.a().getGrades()) {
-            var destinos = new ArrayList<Integer>();
-            indice.query(reader.read(meta.getWktFronteira()).getEnvelopeInternal(), item -> destinos.add((Integer) item));
-            destinos.sort(Integer::compareTo);
-            for (int destino : destinos) pares.add("{\"a\":" + meta.getIdParticao() + ",\"b\":" + destino + "}");
+        for (var par : PlanoSamj.criar(conjunto).pares()) {
+            pares.add("{\"a\":" + par.a() + ",\"b\":" + par.b() + "}");
         }
         var fronteiras = new ArrayList<String>();
         for (var meta : conjunto.grade()) fronteiras.add("{\"id\":" + meta.getIdParticao()
