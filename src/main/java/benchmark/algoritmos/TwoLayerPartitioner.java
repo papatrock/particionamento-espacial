@@ -6,7 +6,6 @@ import benchmark.ResultadoParticionamento;
 import benchmark.SpatialPartitioner;
 import org.locationtech.jts.geom.Envelope;
 import org.locationtech.jts.geom.Geometry;
-import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.io.WKTReader;
 
 import java.util.ArrayList;
@@ -67,29 +66,37 @@ public class TwoLayerPartitioner implements SpatialPartitioner {
         // Equivalente a uma grade uniforme no domínio normalizado pelo maior eixo.
         double lado = Math.max(dominio.getWidth(), dominio.getHeight());
         if (lado == 0) lado = 1; // Pontos coincidentes precisam de células com área positiva.
-        double[] xs = limites(dominio.getMinX(), lado);
-        double[] ys = limites(dominio.getMinY(), lado);
+        double[] xs = limites(dominio.getMinX(), lado, dominio.getMaxX());
+        double[] ys = limites(dominio.getMinY(), lado, dominio.getMaxY());
         List<ParticaoMetadata> grade = new ArrayList<>();
-        GeometryFactory factory = new GeometryFactory();
         for (int y = 0; y < celulasPorEixo; y++) {
             for (int x = 0; x < celulasPorEixo; x++) {
-                Envelope cell = new Envelope(xs[x], xs[x + 1], ys[y], ys[y + 1]);
                 grade.add(new ParticaoMetadata(y * celulasPorEixo + x + 1,
-                        factory.toGeometry(cell).toText()));
+                        wktCelula(xs[x], xs[x + 1], ys[y], ys[y + 1])));
             }
         }
         return List.copyOf(grade);
     }
 
-    private double[] limites(double inicio, double lado) {
+    private double[] limites(double inicio, double lado, double maximoOrigem) {
         double[] limites = new double[celulasPorEixo + 1];
         for (int i = 0; i <= celulasPorEixo; i++) {
             limites[i] = inicio + lado * ((double) i / celulasPorEixo);
+            // inicio + (maximo - inicio) pode ficar um ULP abaixo de maximo.
+            // Corrige apenas a borda externa, sem tolerância no teste de pertencimento.
+            if (i == celulasPorEixo) limites[i] = Math.max(limites[i], maximoOrigem);
             if (!Double.isFinite(limites[i]) || (i > 0 && limites[i] <= limites[i - 1])) {
                 throw new IllegalArgumentException("Extensão/resolução da grade não representável em double");
             }
         }
         return limites;
+    }
+
+    private static String wktCelula(double x0, double x1, double y0, double y1) {
+        // A conversão padrão de Geometry.toText() pode arredondar coordenadas.
+        // Double.toString (na concatenação) preserva o double ao reler o molde.
+        return "POLYGON ((" + x0 + " " + y0 + ", " + x0 + " " + y1 + ", "
+                + x1 + " " + y1 + ", " + x1 + " " + y0 + ", " + x0 + " " + y0 + "))";
     }
 
     @Override
@@ -137,7 +144,9 @@ public class TwoLayerPartitioner implements SpatialPartitioner {
     // à última célula. A mesma regra para ambos os extremos preserva contatos.
     private static int indice(double valor, double[] limites) {
         if (valor < limites[0] || valor > limites[limites.length - 1]) {
-            throw new IllegalArgumentException("Geometria fora da grade; crie o domínio com ambas as entradas");
+            throw new IllegalArgumentException("Geometria fora da grade: coordenada=" + valor
+                    + ", limites=[" + limites[0] + ", " + limites[limites.length - 1]
+                    + "]; crie o domínio com ambas as entradas");
         }
         int pos = Arrays.binarySearch(limites, valor);
         if (pos < 0) pos = -pos - 2;
