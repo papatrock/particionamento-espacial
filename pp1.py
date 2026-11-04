@@ -219,7 +219,7 @@ class Experimento:
         return metadados
 
     def materializar(self, dataset, trabalho, metadados, pasta, criar_gist=True, normalizar_multi=True):
-        # PP1 preserva os tipos de origem; PP2–PP4 mantêm a normalização padrão.
+        # PP1 preserva os tipos de origem; PP2–PP5 mantêm a normalização padrão.
         tipos = dataset["tipos"] if normalizar_multi else dataset["tipos_origem"]
         geometria = f"ST_GeomFromText(wkt, {dataset['srid']})"
         if normalizar_multi:

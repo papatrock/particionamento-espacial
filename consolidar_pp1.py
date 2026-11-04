@@ -140,7 +140,7 @@ def preparar_csv(destino, nome, fontes, colunas_padrao, experimento="pp1"):
 
 
 def consolidar(base=Path("resultados/pp1"), experimento="pp1"):
-    if experimento not in ("pp1", "pp2", "pp3", "pp4"):
+    if experimento not in ("pp1", "pp2", "pp3", "pp4", "pp5"):
         raise ValueError("Experimento desconhecido")
     base = Path(base).resolve()
     if base.name.startswith(experimento + "_") and (

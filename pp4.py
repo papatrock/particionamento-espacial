@@ -32,7 +32,7 @@ def registrar_servidor(exp, pasta):
         'parallel_leader_participation', 'min_parallel_table_scan_size', 'min_parallel_index_scan_size',
         'parallel_setup_cost', 'parallel_tuple_cost', 'enable_parallel_append', 'enable_parallel_hash',
         'enable_partitionwise_join', 'enable_partitionwise_aggregate', 'work_mem', 'shared_buffers',
-        'effective_cache_size', 'jit', 'enable_seqscan', 'enable_indexscan', 'enable_indexonlyscan',
+        'effective_cache_size', 'max_locks_per_transaction', 'max_connections', 'jit', 'enable_seqscan', 'enable_indexscan', 'enable_indexonlyscan',
         'enable_bitmapscan', 'debug_parallel_query', 'force_parallel_mode');"""
     info = json.loads(exp.sql(exp.configuracao_sessao() + "\n" + sql, pasta / "servidor"))
     salvar_json(pasta / "servidor.json", info)
