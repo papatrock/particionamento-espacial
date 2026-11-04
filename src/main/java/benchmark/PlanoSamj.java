@@ -6,9 +6,8 @@ import org.locationtech.jts.io.WKTReader;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.stream.Collectors;
 
-/** Pares de grupos candidatos para associação única, compartilhados pelo Main e pela PP1. */
+/** Pares de grupos candidatos para associação única, usados pelas variantes SAMJ da PP1. */
 public record PlanoSamj(List<Par> pares) {
     public record Par(int a, int b) { }
 
@@ -30,14 +29,5 @@ public record PlanoSamj(List<Par> pares) {
         }
         pares.sort(Comparator.comparingInt(Par::a).thenComparingInt(Par::b));
         return new PlanoSamj(pares);
-    }
-
-    /** Cada objeto pertence a um único grupo; cada par de grupos é consultado uma vez. */
-    public String consulta() {
-        if (pares.isEmpty()) return "SELECT 0::bigint";
-        return "SELECT SUM(total)::bigint FROM (\n" + pares.stream()
-                .map(par -> "SELECT COUNT(*) AS total FROM public.tabela_a_p" + par.a()
-                        + " a JOIN public.tabela_b_p" + par.b() + " b ON ST_Intersects(a.geom, b.geom)")
-                .collect(Collectors.joining("\nUNION ALL\n")) + "\n) pares";
     }
 }

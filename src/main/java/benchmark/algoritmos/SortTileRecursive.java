@@ -18,9 +18,9 @@ import java.util.List;
  * https://doi.org/10.1109/ICDE.1997.582015; Aji, Vo e Wang,
  * https://arxiv.org/abs/1509.00910 (seção 4.2).
  *
- * processarConjunto preserva os membros de cada grupo (SAMJ), com capacidade
- * combinada de A+B. O contrato legado processar(wkts, molde) continua replicando
- * por MBR (MASJ), para os demais experimentos. MBRs podem se sobrepor e deixar lacunas.
+ * processar(wkts, molde) replica por MBR (MASJ), o modelo do artigo e o principal dos
+ * experimentos. processarConjunto preserva os membros de cada grupo (SAMJ), com capacidade
+ * combinada de A+B, para as variantes da PP1. MBRs podem se sobrepor e deixar lacunas.
  */
 public class SortTileRecursive implements SpatialPartitioner {
     private static final boolean DEBUG = Boolean.getBoolean("str.debug");

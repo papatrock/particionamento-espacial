@@ -51,12 +51,7 @@ public final class OperacoesPostGIS {
     /** Substitui apenas as saídas compartilhadas, com rollback se qualquer etapa falhar. */
     public void substituirSaidas(CenarioTeste cenario, DadosEspaciais a, DadosEspaciais b,
                                  ResultadoParticionamento resA, ResultadoParticionamento resB) throws SQLException {
-        substituirSaidas(cenario, a, b, resA, resB, resA.getGrades());
-    }
-
-    public void substituirSaidas(CenarioTeste cenario, DadosEspaciais a, DadosEspaciais b,
-                                 ResultadoParticionamento resA, ResultadoParticionamento resB,
-                                 List<ParticaoMetadata> grade) throws SQLException {
+        List<ParticaoMetadata> grade = resA.getGrades();
         validarEntrada(cenario.datasetA());
         validarEntrada(cenario.datasetB());
         conn.setAutoCommit(false);
@@ -155,12 +150,6 @@ public final class OperacoesPostGIS {
         }
         return medir("SELECT COUNT(*) FROM " + SAIDA_A + " a JOIN " + SAIDA_B
                 + " b ON " + TwoLayerPartitioner.condicaoJoinSql("a", "b"));
-    }
-
-    public MedicaoJoin joinSamj(PlanoSamj plano) throws SQLException {
-        analisar(SAIDA_A, SAIDA_B);
-        String sql = plano.consulta();
-        return medir(sql);
     }
 
     private void analisar(String a, String b) throws SQLException {

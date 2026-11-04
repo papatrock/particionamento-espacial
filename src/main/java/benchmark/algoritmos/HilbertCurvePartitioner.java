@@ -16,8 +16,9 @@ import java.util.List;
  * Hilbert Curve Partitioning (HC), conforme Aji, Vo e Wang, seção 4.2:
  * https://arxiv.org/abs/1509.00910.
  * Ordena centroides geométricos pela curva e cria MBRs de grupos de até b objetos.
- * Não constrói uma Hilbert R-tree. processarConjunto preserva os grupos de A+B
- * para SAMJ; processar(wkts, molde) mantém a associação múltipla legada (MASJ).
+ * Não constrói uma Hilbert R-tree. processar(wkts, molde) replica por MBR (MASJ), o modelo
+ * do artigo e o principal dos experimentos; processarConjunto preserva os grupos de A+B
+ * para as variantes SAMJ da PP1.
  */
 public final class HilbertCurvePartitioner implements SpatialPartitioner {
     public static final int CAPACIDADE_PADRAO = 1000;
