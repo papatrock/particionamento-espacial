@@ -49,6 +49,8 @@ def analisar(resultados=RESULTADOS_PADRAO):
         "STR",
         "HILBERT",
         "BSP",
+        "STR_SAMJ",
+        "HILBERT_SAMJ",
     ]
 
 
