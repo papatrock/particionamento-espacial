@@ -1,6 +1,5 @@
 """PP5: algoritmos × número de partições, com workload, amostras, workers e GiST fixos."""
 from argparse import Namespace
-from datetime import datetime, timezone
 import json
 from math import ceil
 from pathlib import Path
@@ -8,20 +7,19 @@ import statistics
 import tempfile
 import time
 
-from pp1 import (Experimento, SAIDA_A, SAIDA_B, identificador, salvar_json, metadados_execucao,
-                 consulta_direta, consulta_particionada)
-from pp2 import (criar_parser, argumentos as argumentos_base, carregar_config, preparar_amostras,
-                 validar_pares, anexar_csv, WORKLOADS, MULTI)
-from pp4 import registrar_servidor, resumir_plano
-from perf_coleta import verificar_perf
-from consolidar_pp1 import consolidar, imprimir_resumo
+from nucleo.amostras import WORKLOADS, carregar_config, validar_pares
+from nucleo.argumentos import criar_parser, validar_argumentos
+from nucleo.arquivos import salvar_json
+from nucleo.consultas import SAIDA_A, SAIDA_B, consulta_direta, consulta_particionada
+from nucleo.execucao import execucao_amostrada
+from nucleo.servidor import registrar_servidor, resumir_plano
 
 
 def argumentos(argv=None):
     parser = criar_parser(particoes_lista=True)
     parser.description = __doc__
     parser.set_defaults(workloads=["linha_poligono"], saida=Path("resultados/pp5"))
-    args = argumentos_base(argv, parser=parser)
+    args = validar_argumentos(argv, parser=parser)
     if len(args.workloads) != 1:
         parser.error("A PP5 fixa um workload por execução; informe apenas um em --workloads")
     args.particoes = sorted(set(args.particoes))
@@ -102,33 +100,17 @@ def executar(args):
                   f"workers={args.workers}; GiST=on; A={args.objetos_a}, B={args.objetos_b}; "
                   f"perf={'on' if args.perf else 'off'}")
         return
-    pasta = args.saida.resolve() / ("pp5_" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ"))
-    pasta.mkdir(parents=True)
-    schema = pasta.name.lower()
-    meta = metadados_execucao(pasta.name)
-    meta["pp5_run_id"] = meta.pop("pp1_run_id")
-    salvar_json(pasta / "configuracao.json", {**vars(args), "config": str(args.config.resolve()),
-                "saida": str(pasta), "fontes": config, "indexacao": "on", "gist": "on", **meta})
     # O particionador recebe um alvo escalar; a configuração da matriz permanece intacta.
-    exp = Experimento(Namespace(**{**vars(args), "particoes": None}), pasta)
-    manifesto = {"status": "em_execucao", "combinacoes": [], "schema_amostras": schema}
-    salvar_json(pasta / "manifesto.json", manifesto)
-    criado = False
-    try:
-        if args.perf:
-            verificar_perf(args.perf_eventos, pasta, exp.ambiente)
-        servidor = registrar_servidor(exp, pasta)
+    args_experimento = Namespace(**{**vars(args), "particoes": None})
+    with execucao_amostrada("pp5", args, config, extras={"gist": "on"}, args_experimento=args_experimento) as run:
+        exp = run.exp
+        servidor = registrar_servidor(exp, run.pasta)
         if any(alvo is not None for _, alvo in casos):
             avisar_locks(servidor, args)
-            print("Compilando os particionadores Java...", flush=True)
-            exp.processo(["mvn", "-q", "compile"], pasta / "compilacao.log")
-        exp.sql(f"CREATE SCHEMA {identificador(schema)};", pasta / "schema")
-        criado = True
-        escala = preparar_amostras(exp, config, args, schema, pasta)
+        escala = run.preparar()
         nome_a = WORKLOADS[workload]
-        dataset = {"schema": schema, "cenario": workload, "tabelas": (nome_a, "poligonos_b"),
-                   "id": "id", "geom": "geom", "srid": config["srid"], "tipos": (MULTI[nome_a], "MultiPolygon")}
-        destino = pasta / workload
+        dataset = run.dataset(workload)
+        destino = run.pasta / workload
         destino.mkdir()
         exp.preparar_entradas(dataset, destino)
         esperado = int(exp.sql(exp.configuracao_sessao() + "\n" + consulta_direta(dataset), destino / "referencia"))
@@ -140,10 +122,7 @@ def executar(args):
                 print(f"PP5 {config['dataset']} / {workload} / {algoritmo} / alvo={alvo or 'N/A'}", flush=True)
                 caso = destino / algoritmo.lower() / (f"particoes_{alvo}" if alvo else "sem_particoes")
                 caso.mkdir(parents=True)
-                registro = {"workload": workload, "algoritmo": algoritmo, "particoes_alvo": alvo or "",
-                            "status": "em_execucao"}
-                manifesto["combinacoes"].append(registro)
-                salvar_json(pasta / "manifesto.json", manifesto)
+                registro = run.iniciar_caso(workload=workload, algoritmo=algoritmo, particoes_alvo=alvo or "")
                 if alvo is None:
                     metadata = {"particoes_efetivas": "", "capacidade": ""}
                     preparo = {"particionamento_s": "", "materializacao_s": "", "tamanho_saidas_bytes": ""}
@@ -175,31 +154,7 @@ def executar(args):
                             "plano_execucao_ms": plano[0]["Execution Time"],
                             **{k: atual[k] for k in ("max_parallel_workers", "max_worker_processes", "parallel_leader_participation")},
                             **diagnostico["resumo"]}
-                anexar_csv(medicoes, pasta / "consultas.csv", contexto)
-                if args.perf:
-                    anexar_csv(medicoes.parent / "perf.csv", pasta / "perf.csv", contexto)
-                registro.update(status="concluido", intersecoes=esperado, **contexto)
-                salvar_json(pasta / "manifesto.json", manifesto)
-        manifesto["status"] = "concluido"
-    except (Exception, KeyboardInterrupt) as erro:
-        manifesto.update(status="falhou", erro=str(erro))
-        if manifesto["combinacoes"] and manifesto["combinacoes"][-1]["status"] == "em_execucao":
-            manifesto["combinacoes"][-1]["status"] = "falhou"
-        raise SystemExit(f"PP5 interrompida: {erro}\nLogs: {pasta}") from erro
-    finally:
-        if criado:
-            try:
-                exp.sql(f"DROP SCHEMA {identificador(schema)} CASCADE;", pasta / "limpeza")
-                manifesto["amostras_removidas"] = True
-            except Exception as erro:
-                manifesto["erro_limpeza"] = str(erro)
-                print(f"Aviso: schema de amostras mantido: {schema}; {erro}")
-        salvar_json(pasta / "manifesto.json", manifesto)
-    print(f"PP5 concluída: {pasta}")
-    try:
-        imprimir_resumo(consolidar(pasta.parent, "pp5"), "pp5")
-    except Exception as erro:
-        print(f"Aviso: consolidação falhou; brutos preservados: {erro}")
+                run.concluir_caso(registro, medicoes, contexto, esperado)
 
 
 if __name__ == "__main__":

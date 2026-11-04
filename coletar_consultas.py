@@ -7,7 +7,7 @@ import subprocess
 import time
 from datetime import datetime, timezone
 
-from perf_coleta import argumentos_perf, executar_perf, finalizar_perf
+from nucleo.perf_coleta import argumentos_perf, executar_perf, finalizar_perf
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--cenario", required=True) #pp1: brasil_line x brasil_polygon

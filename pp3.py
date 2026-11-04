@@ -1,15 +1,13 @@
 """PP3: particionamento × presença física de GiST, sobre um workload fixo."""
-from datetime import datetime, timezone
 import json
 from pathlib import Path
 import tempfile
 
-from pp1 import (Experimento, identificador, literal, salvar_json, metadados_execucao,
-                 consulta_direta, consulta_particionada)
-from pp2 import (criar_parser, argumentos as argumentos_base, carregar_config, preparar_amostras,
-                 validar_pares, anexar_csv, WORKLOADS, MULTI)
-from perf_coleta import verificar_perf
-from consolidar_pp1 import consolidar, imprimir_resumo
+from nucleo.amostras import WORKLOADS, carregar_config, validar_pares
+from nucleo.argumentos import criar_parser, validar_argumentos
+from nucleo.arquivos import salvar_json
+from nucleo.consultas import consulta_direta, consulta_particionada, identificador, literal
+from nucleo.execucao import execucao_amostrada
 
 
 def argumentos(argv=None):
@@ -18,7 +16,7 @@ def argumentos(argv=None):
     parser.add_argument("--gist", nargs="+", choices=("off", "on"), default=["off", "on"],
                         help="Presença física do índice em ambas as entradas, inclusive nas partições.")
     parser.set_defaults(workloads=["linha_poligono"], saida=Path("resultados/pp3"))
-    args = argumentos_base(argv, parser=parser)
+    args = validar_argumentos(argv, parser=parser)
     if len(args.workloads) != 1:
         parser.error("A PP3 fixa um workload por execução; informe apenas um em --workloads")
     args.gist = list(dict.fromkeys(args.gist))
@@ -72,43 +70,24 @@ def executar(args):
                       f"alvo={args.particoes if algoritmo != 'SEM_PARTICIONAMENTO' else 'N/A'}; "
                       f"perf={'on' if args.perf else 'off'}")
         return
-    pasta = args.saida.resolve() / ("pp3_" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ"))
-    pasta.mkdir(parents=True)
-    schema = pasta.name.lower()
-    meta = metadados_execucao(pasta.name)
-    meta["pp3_run_id"] = meta.pop("pp1_run_id")
-    salvar_json(pasta / "configuracao.json", {**vars(args), "config": str(args.config.resolve()),
-                "saida": str(pasta), "fontes": config, "indexacao": "on", **meta})
-    manifesto = {"status": "em_execucao", "combinacoes": [], "schema_amostras": schema}
-    salvar_json(pasta / "manifesto.json", manifesto)
-    criado = False
-    exp = Experimento(args, pasta)
-    try:
-        if args.perf:
-            verificar_perf(args.perf_eventos, pasta, exp.ambiente)
-        particionados = any(a != "SEM_PARTICIONAMENTO" for a in args.algoritmos)
-        if particionados:
-            print("Compilando os particionadores Java...", flush=True)
-            exp.processo(["mvn", "-q", "compile"], pasta / "compilacao.log")
-        exp.sql(f"CREATE SCHEMA {identificador(schema)};", pasta / "schema")
-        criado = True
-        escala = preparar_amostras(exp, config, args, schema, pasta)
+    with execucao_amostrada("pp3", args, config) as run:
+        exp = run.exp
+        escala = run.preparar()
         nome_a = WORKLOADS[workload]
-        dataset = {"schema": schema, "cenario": workload, "tabelas": (nome_a, "poligonos_b"),
-                   "id": "id", "geom": "geom", "srid": config["srid"], "tipos": (MULTI[nome_a], "MultiPolygon")}
-        destino = pasta / workload
+        dataset = run.dataset(workload)
+        destino = run.pasta / workload
         destino.mkdir()
         exp.preparar_entradas(dataset, destino, criar_gist=False)
         # GiST na referência evita um join potencialmente quadrático só para validar.
         # Os índices destas cópias serão configurados novamente em cada caso baseline.
         referencia = destino / "referencia"
         referencia.mkdir()
-        tabelas_base = [(schema, nome) for nome in dataset["tabelas"]]
+        tabelas_base = [(run.schema, nome) for nome in dataset["tabelas"]]
         configurar_gist(exp, tabelas_base, "on", referencia)
         esperado = int(exp.sql(exp.configuracao_sessao() + "\n" + consulta_direta(dataset), referencia / "contagem"))
         with tempfile.TemporaryDirectory(prefix=".entradas-", dir=destino) as temp:
             entradas = Path(temp)
-            if particionados:
+            if any(a != "SEM_PARTICIONAMENTO" for a in args.algoritmos):
                 exp.exportar(dataset, entradas, destino)
             for algoritmo in args.algoritmos:
                 algoritmo_dir = destino / algoritmo.lower()
@@ -128,9 +107,7 @@ def executar(args):
                     print(f"PP3 {config['dataset']} / {workload} / {algoritmo} / GiST={gist}", flush=True)
                     caso = algoritmo_dir / ("gist_" + gist)
                     caso.mkdir()
-                    registro = {"workload": workload, "algoritmo": algoritmo, "gist": gist, "status": "em_execucao"}
-                    manifesto["combinacoes"].append(registro)
-                    salvar_json(pasta / "manifesto.json", manifesto)
+                    registro = run.iniciar_caso(workload=workload, algoritmo=algoritmo, gist=gist)
                     bytes_indices = configurar_gist(exp, tabelas, gist, caso)
                     if algoritmo != "SEM_PARTICIONAMENTO":
                         validar_pares(exp, dataset, algoritmo, caso)
@@ -142,31 +119,7 @@ def executar(args):
                                 "bytes_indices": bytes_indices,
                                 "particoes_alvo": args.particoes if algoritmo != "SEM_PARTICIONAMENTO" else "",
                                 "particoes_efetivas": metadata["particoes_efetivas"], "capacidade": metadata["capacidade"]}
-                    anexar_csv(medicoes, pasta / "consultas.csv", contexto)
-                    if args.perf:
-                        anexar_csv(medicoes.parent / "perf.csv", pasta / "perf.csv", contexto)
-                    registro.update(status="concluido", intersecoes=esperado, **contexto)
-                    salvar_json(pasta / "manifesto.json", manifesto)
-        manifesto["status"] = "concluido"
-    except (Exception, KeyboardInterrupt) as erro:
-        manifesto.update(status="falhou", erro=str(erro))
-        if manifesto["combinacoes"] and manifesto["combinacoes"][-1]["status"] == "em_execucao":
-            manifesto["combinacoes"][-1]["status"] = "falhou"
-        raise SystemExit(f"PP3 interrompida: {erro}\nLogs: {pasta}") from erro
-    finally:
-        if criado:
-            try:
-                exp.sql(f"DROP SCHEMA {identificador(schema)} CASCADE;", pasta / "limpeza")
-                manifesto["amostras_removidas"] = True
-            except Exception as erro:
-                manifesto["erro_limpeza"] = str(erro)
-                print(f"Aviso: schema de amostras mantido: {schema}; {erro}")
-        salvar_json(pasta / "manifesto.json", manifesto)
-    print(f"PP3 concluída: {pasta}")
-    try:
-        imprimir_resumo(consolidar(pasta.parent, "pp3"), "pp3")
-    except Exception as erro:
-        print(f"Aviso: consolidação falhou; brutos preservados: {erro}")
+                    run.concluir_caso(registro, medicoes, contexto, esperado)
 
 
 if __name__ == "__main__":

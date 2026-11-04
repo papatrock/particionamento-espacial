@@ -1,0 +1,1 @@
+"""Código compartilhado pelas PPs."""

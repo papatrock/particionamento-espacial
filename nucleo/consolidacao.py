@@ -1,6 +1,5 @@
-"""Reconstrói os acumulados a partir dos CSVs brutos de execuções PP1 concluídas."""
+"""Reconstrói os acumulados a partir dos CSVs brutos das execuções concluídas de cada PP."""
 
-import argparse
 import csv
 from dataclasses import dataclass
 import fcntl
@@ -11,6 +10,7 @@ import re
 import tempfile
 
 
+EXPERIMENTOS = ("pp1", "pp2", "pp3", "pp4", "pp5")
 METADADOS = ("pp1_run_id", "hostname", "git_commit", "git_dirty")
 CONSULTAS = (
     "execucao", "cenario", "algoritmo", "rodada", "repeticao", "aquecimentos",
@@ -140,7 +140,7 @@ def preparar_csv(destino, nome, fontes, colunas_padrao, experimento="pp1"):
 
 
 def consolidar(base=Path("resultados/pp1"), experimento="pp1"):
-    if experimento not in ("pp1", "pp2", "pp3", "pp4", "pp5"):
+    if experimento not in EXPERIMENTOS:
         raise ValueError("Experimento desconhecido")
     base = Path(base).resolve()
     if base.name.startswith(experimento + "_") and (
@@ -186,18 +186,3 @@ def imprimir_resumo(resumo, experimento="pp1"):
     print(f"\nArquivos:\n  {resumo.arquivo_consultas}\n  {resumo.arquivo_perf}")
     for aviso in resumo.avisos:
         print(f"Aviso: {aviso}")
-
-
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--entrada", type=Path, default=Path("resultados/pp1"),
-                        help="Pasta que contém pp1_* (padrão: resultados/pp1); saída em acumulado/.")
-    args = parser.parse_args()
-    try:
-        imprimir_resumo(consolidar(args.entrada))
-    except (ErroConsolidacao, OSError) as erro:
-        parser.exit(1, f"Consolidação PP1 não concluída: {erro}\n")
-
-
-if __name__ == "__main__":
-    main()
