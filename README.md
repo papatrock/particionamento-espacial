@@ -54,7 +54,7 @@ mvn compile exec:java -Dexec.mainClass=benchmark.CenarioTesteRunner
 
 Selecione o cenário e o algoritmo nos menus apresentados. Ao final, o programa mostra o resultado do join e seu tempo de execução.
 
-O runner Java compartilhado pelas quatro PPs é
+O runner Java compartilhado pelas cinco PPs é
 [`ParticionamentoRunner`](src/main/java/benchmark/ParticionamentoRunner.java).
 Os scripts o acionam pelo método `Experimento.particionar()`, definido em
 `pp1.py`. Ele recebe arquivos TSV e exporta as associações objeto–partição;
@@ -63,7 +63,11 @@ As propriedades Java `pp1.*` foram mantidas por compatibilidade.
 
 ## Executar o PP1 completo
 
-`pp1.py` prepara e mede as dez combinações: Curitiba (`eixo_rua × arruamento_quadras`) e Brasil (`brasil_line × brasil_polygon`), cada uma com `SEM_PARTICIONAMENTO`, `TWO_LAYER`, `STR`, `HILBERT` e `BSP`.
+`pp1.py` prepara e mede as catorze combinações: Curitiba (`eixo_rua × arruamento_quadras`) e Brasil (`brasil_line × brasil_polygon`), cada uma com `SEM_PARTICIONAMENTO`, `TWO_LAYER`, `STR`, `HILBERT`, `BSP`, `STR_SAMJ` e `HILBERT_SAMJ`.
+
+`STR`, `HILBERT` e `BSP` usam associação múltipla com deduplicação (MASJ), como em Aji, Vo e Wang (2015), em todas as PPs. `STR_SAMJ` e `HILBERT_SAMJ` são variantes da PP1 com associação única (SAMJ): cada objeto fica em um só grupo e a consulta percorre os pares de grupos cujos MBRs se tocam.
+
+Cada consulta medida tem um limite de tempo (`--limite-consulta-min`, padrão 120; 0 desativa). Ao estourar, inclusive em um aquecimento, o caso fica com status `nao_concluiu` no `manifesto.json`, sem linhas em `consultas.csv`, e a execução continua, permanecendo elegível para o acumulado. O limite não cobre a preparação (particionamento, materialização e GiST) nem a contagem de referência.
 
 Confira a matriz sem conectar ao banco nem alterar tabelas:
 
@@ -100,7 +104,7 @@ GiST válido existente nas entradas é reutilizado; se estiver ausente, o script
 
 A preparação segue os parâmetros naturais dos algoritmos: Two-Layer usa uma grade quadrada; STR e Hilbert usam capacidade `max(1, ceil(N / alvo))`; BSP faz uma busca limitada por capacidade, retendo a grade válida mais próxima do alvo entre as tentativas. `--bsp-tentativas` controla essa busca (padrão 8). Ela é uma heurística, pois a replicação não garante monotonicidade nem atingir o alvo. As tentativas, a capacidade escolhida e a quantidade efetiva são registradas. `--hilbert-bits` tem padrão 16. N conta as geometrias não vazias das duas entradas.
 
-Uma contagem direta de referência é calculada para cada dataset. O coletor confere o resultado de todos os aquecimentos e repetições contra essa referência e interrompe o experimento em caso de divergência. Two-Layer usa o filtro A/B/C/D; STR, Hilbert e BSP deduplicam os pares de IDs. Após as medições, uma execução adicional com `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` salva o plano. A ordem é sequencial, sem limpeza de cache.
+Uma contagem direta de referência é calculada para cada dataset. O coletor confere o resultado de todos os aquecimentos e repetições contra essa referência e interrompe o experimento em caso de divergência. Two-Layer usa o filtro A/B/C/D; STR, Hilbert e BSP deduplicam os pares de IDs; as variantes SAMJ somam as contagens dos pares de grupos, sem deduplicação. Após as medições, uma execução adicional com `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` salva o plano. A ordem é sequencial, sem limpeza de cache.
 
 Cada execução cria `resultados/pp1/pp1_<dataUTC>/` com:
 
