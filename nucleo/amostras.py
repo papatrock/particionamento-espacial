@@ -29,11 +29,17 @@ def tabela(relacao):
     return identificador(relacao["schema"]) + "." + identificador(relacao["tabela"])
 
 
-def sql_amostra(relacao, destino, quantidade, semente):
+def sql_amostra(relacao, destino, quantidade, semente, pular=0):
     id_, geom = identificador(relacao["id"]), identificador(relacao["geom"])
     return (f"CREATE TABLE {destino} AS SELECT {id_}::bigint AS id, ST_Multi({geom}) AS geom "
             f"FROM {tabela(relacao)} WHERE NOT ST_IsEmpty({geom}) "
-            f"ORDER BY md5({id_}::text || ':' || {literal(semente)}), {id_}::bigint LIMIT {quantidade};")
+            f"ORDER BY md5({id_}::text || ':' || {literal(semente)}), {id_}::bigint LIMIT {quantidade} OFFSET {pular};")
+
+
+def objetos_a_pular(config, args, nome):
+    """A da mesma fonte de B começa depois de B na ordem sorteada: sem isso, B ficaria contido em A."""
+    relacoes = config["relacoes"]
+    return args.objetos_b if nome != "poligonos_b" and relacoes[nome] == relacoes["poligonos_b"] else 0
 
 
 def preparar_amostras(exp, config, args, schema, pasta):
@@ -51,7 +57,7 @@ def preparar_amostras(exp, config, args, schema, pasta):
               OR ST_NDims({geom}) <> 2 OR NOT ST_IsValid({geom})
               OR ST_GeometryType({geom}) NOT IN ({permitidos}))) FROM {tabela(r)};""",
             pasta / (nome + "_fonte")))
-        n = args.objetos_b if nome == "poligonos_b" else args.objetos_a
+        n = (args.objetos_b if nome == "poligonos_b" else args.objetos_a) + objetos_a_pular(config, args, nome)
         if info["registros"] != info["ids"] or info["ids"] != info["ids_distintos"]:
             raise ValueError(f"{nome}: IDs devem ser inteiros únicos e não nulos; configure uma chave adequada no JSON")
         if info["invalidos"] or info["validos"] < n:
@@ -60,7 +66,8 @@ def preparar_amostras(exp, config, args, schema, pasta):
     for nome in nomes:
         n = args.objetos_b if nome == "poligonos_b" else args.objetos_a
         destino = identificador(schema) + "." + identificador(nome)
-        comandos.append(sql_amostra(config["relacoes"][nome], destino, n, args.semente))
+        comandos.append(sql_amostra(config["relacoes"][nome], destino, n, args.semente,
+                                    objetos_a_pular(config, args, nome)))
     comandos.append("COMMIT;")
     print("Criando amostras com as cardinalidades solicitadas...", flush=True)
     exp.sql("\n".join(comandos), pasta / "amostragem")
