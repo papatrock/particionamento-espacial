@@ -13,12 +13,16 @@ import subprocess
 import sys
 import tempfile
 
+from consolidar_pp1 import CONSULTAS, PERF
 from perf_coleta import argumentos_perf, verificar_perf
 
 
 RAIZ = Path(__file__).resolve().parent
 ALGORITMOS = ("SEM_PARTICIONAMENTO", "TWO_LAYER", "STR", "HILBERT", "BSP")
-MODELO_PP1 = "str_hilbert_samj_v1"
+# STR, Hilbert e BSP seguem o MASJ de Aji, Vo e Wang (2015); as variantes medem a associação única à parte.
+VARIANTES_SAMJ = {"STR_SAMJ": "STR", "HILBERT_SAMJ": "HILBERT"}
+MODELO_PP1 = "masj_variantes_samj_v2"
+CODIGO_LIMITE = 3  # Saída de coletar_consultas.py quando uma consulta excede o limite.
 SAIDA_A = 'public."tabela_a_particionada"'
 SAIDA_B = 'public."tabela_b_particionada"'
 DATASETS = {
@@ -31,6 +35,16 @@ DATASETS = {
                "tipos": ("MultiLineString", "MultiPolygon"),
                "tipos_origem": ("LineString", "Polygon")},
 }
+
+
+class ErroProcesso(RuntimeError):
+    def __init__(self, mensagem, codigo):
+        super().__init__(mensagem)
+        self.codigo = codigo
+
+
+class LimiteExcedido(RuntimeError):
+    """A consulta não terminou no limite: é um resultado do caso, não uma falha da execução."""
 
 
 def identificador(nome):
@@ -82,7 +96,11 @@ def argumentos():
     parser.add_argument("--usuario")
     parser.add_argument("--pedir-senha", action="store_true", help="Solicita a senha uma vez para todos os processos psql.")
     parser.add_argument("--datasets", nargs="+", choices=DATASETS, default=list(DATASETS))
-    parser.add_argument("--algoritmos", nargs="+", choices=ALGORITMOS, default=list(ALGORITMOS))
+    parser.add_argument("--algoritmos", nargs="+", choices=(*ALGORITMOS, *VARIANTES_SAMJ),
+                        default=[*ALGORITMOS, *VARIANTES_SAMJ])
+    parser.add_argument("--limite-consulta-min", type=float, default=120,
+                        help="Tempo máximo de cada consulta medida, em minutos; ao estourar, o caso é registrado "
+                             "como nao_concluiu e a execução segue (padrão: 120; 0 desativa).")
     parser.add_argument("--particoes", type=int, default=64, help="Granularidade-alvo (padrão: 64).")
     parser.add_argument("--workers", type=int, default=24)
     parser.add_argument("--aquecimentos", type=int, default=3)
@@ -96,8 +114,8 @@ def argumentos():
     parser.add_argument("--simular", action="store_true", help="Mostra a matriz sem conectar, compilar ou alterar tabelas.")
     argumentos_perf(parser)
     args = parser.parse_args()
-    if args.workers < 0 or args.aquecimentos < 0 or args.repeticoes < 1:
-        parser.error("Use workers >= 0, aquecimentos >= 0 e repeticoes >= 1.")
+    if args.workers < 0 or args.aquecimentos < 0 or args.repeticoes < 1 or args.limite_consulta_min < 0:
+        parser.error("Use workers >= 0, aquecimentos >= 0, repeticoes >= 1 e limite-consulta-min >= 0.")
     if args.particoes < 1 or args.bsp_tentativas < 1:
         parser.error("Partições e tentativas BSP devem ser positivas.")
     if not 1 <= args.hilbert_bits <= 16:
@@ -145,7 +163,7 @@ class Experimento:
         with destino.open("w", encoding="utf-8") as log:
             resultado = subprocess.run(comando, cwd=RAIZ, stdout=log, env=self.ambiente)
         if resultado.returncode:
-            raise RuntimeError(f"Processo falhou; consulte {destino} e a saída de erro no terminal.")
+            raise ErroProcesso(f"Processo falhou; consulte {destino} e a saída de erro no terminal.", resultado.returncode)
 
     def configuracao_sessao(self):
         return (f"SET max_parallel_workers_per_gather = {self.args.workers};\n"
@@ -260,7 +278,16 @@ class Experimento:
         ]
         if self.args.perf:
             comando.extend(["--perf", "--perf-eventos", self.args.perf_eventos])
-        self.processo(comando, pasta / "coletor.log")
+        # Só a PP1 define o limite; as demais PPs medem sem interrupção.
+        limite = getattr(self.args, "limite_consulta_min", 0)
+        if limite:
+            comando.extend(["--limite-consulta-ms", str(max(1, round(limite * 60000)))])
+        try:
+            self.processo(comando, pasta / "coletor.log")
+        except ErroProcesso as erro:
+            if erro.codigo == CODIGO_LIMITE:
+                raise LimiteExcedido(f"{algoritmo} excedeu {limite:g} min por consulta") from erro
+            raise
         plano = self.sql(self.configuracao_sessao() + "\nEXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) " + consulta,
                          pasta / "plano")
         salvar_json(pasta / "plano.json", json.loads(plano))
@@ -310,7 +337,7 @@ def executar(args):
             for algoritmo in args.algoritmos:
                 print(f"{nome}: {DATASETS[nome]['cenario']} / {algoritmo}; "
                       f"GiST=on; workers={args.workers}; alvo={args.particoes if algoritmo != 'SEM_PARTICIONAMENTO' else 'N/A'}; "
-                      f"perf={'on' if args.perf else 'off'}")
+                      f"limite={args.limite_consulta_min:g} min; perf={'on' if args.perf else 'off'}")
         return
     pasta = args.saida.resolve() / ("pp1_" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ"))
     pasta.mkdir(parents=True, exist_ok=False)
@@ -351,13 +378,22 @@ def executar(args):
                         metadata = {"particoes_efetivas": None, "capacidade": None}
                         consulta = consulta_direta(dataset)
                         if algoritmo != "SEM_PARTICIONAMENTO":
+                            base = VARIANTES_SAMJ.get(algoritmo, algoritmo)
                             with tempfile.TemporaryDirectory(prefix=".associacoes-", dir=caso) as trabalho:
                                 metadata = experimento.particionar(
-                                    algoritmo, entradas, Path(trabalho), caso,
-                                    associacao_unica=algoritmo in ("STR", "HILBERT"))
+                                    base, entradas, Path(trabalho), caso,
+                                    associacao_unica=algoritmo in VARIANTES_SAMJ)
                                 experimento.materializar(dataset, Path(trabalho), metadata, caso, normalizar_multi=False)
-                            consulta = consulta_particionada(algoritmo, metadata)
-                        medicoes = experimento.medir(dataset, algoritmo, consulta, esperado, caso)
+                            consulta = consulta_particionada(base, metadata)
+                        try:
+                            medicoes = experimento.medir(dataset, algoritmo, consulta, esperado, caso)
+                        except LimiteExcedido as erro:
+                            print(f"  Não concluiu: {erro}", flush=True)
+                            registro.update(status="nao_concluiu", limite_consulta_min=args.limite_consulta_min,
+                                            modelo_join=metadata.get("modelo_join", "DIRETO"),
+                                            particoes_efetivas=metadata["particoes_efetivas"])
+                            salvar_json(pasta / "manifesto.json", manifesto)
+                            continue
                         with medicoes.open(newline="", encoding="utf-8") as arquivo:
                             for linha in csv.DictReader(arquivo):
                                 linha.update(dataset=nome, particoes_alvo=args.particoes if algoritmo != "SEM_PARTICIONAMENTO" else "",
@@ -372,10 +408,15 @@ def executar(args):
                         registro.update(status="concluido", intersecoes=esperado,
                                         particoes_efetivas=metadata["particoes_efetivas"])
                         salvar_json(pasta / "manifesto.json", manifesto)
+            # Se nenhum caso terminou, o cabeçalho mantém a execução válida para a consolidação.
+            if writer is None:
+                csv.writer(consolidado).writerow(CONSULTAS)
         if args.perf:
             arquivos_perf = sorted(pasta.glob("*/*/medicoes/*/perf.csv"))
             with (pasta / "perf.csv").open("w", newline="", encoding="utf-8") as consolidado:
                 writer_perf = None
+                if not arquivos_perf:
+                    csv.writer(consolidado).writerow(PERF)
                 for arquivo_perf in arquivos_perf:
                     with arquivo_perf.open(newline="", encoding="utf-8") as arquivo:
                         for linha in csv.DictReader(arquivo):
@@ -394,6 +435,9 @@ def executar(args):
     finally:
         salvar_json(pasta / "manifesto.json", manifesto)
     print(f"PP1 concluído. CSV consolidado: {pasta / 'consultas.csv'}", flush=True)
+    for registro in manifesto["combinacoes"]:
+        if registro["status"] == "nao_concluiu":
+            print(f"Não concluiu em {args.limite_consulta_min:g} min: {registro['dataset']} / {registro['algoritmo']}", flush=True)
     atualizar_acumulados(pasta.parent)
 
 

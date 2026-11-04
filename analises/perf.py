@@ -12,7 +12,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 
-ORDEM = ["SEM_PARTICIONAMENTO", "TWO_LAYER", "STR", "HILBERT", "BSP"]
+ORDEM = ["SEM_PARTICIONAMENTO", "TWO_LAYER", "STR", "HILBERT", "BSP", "STR_SAMJ", "HILBERT_SAMJ"]
 CHAVE = ["pp1_run_id", "execucao", "dataset", "cenario", "algoritmo", "rodada"]
 METADADOS = ["hostname", "git_commit", "git_dirty"]
 CONFIGURACAO = ["workers_por_gather", "indexacao", "particoes_alvo", "perf", "modelo_pp1"]

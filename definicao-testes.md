@@ -111,8 +111,12 @@ Contadores opcionais: `--perf` coleta o total de eventos do bloco de repetiçõe
 Variar: algoritmo, dataset
 Fixar: GiST, workers, granularidade-alvo, workload
 
-Algoritmos: SEM_PARTICIONAMENTO, TWO_LAYER, STR, HILBERT, BSP
+Algoritmos: SEM_PARTICIONAMENTO, TWO_LAYER, STR, HILBERT, BSP, STR_SAMJ, HILBERT_SAMJ
 dataset: Curitiba (pequeno), Brasil (gigantesco)
+
+Modelo de join: STR, Hilbert e BSP usam MASJ em todas as PPs, como em Aji, Vo e Wang (2015), seções 2.2 e 3.1. STR_SAMJ e HILBERT_SAMJ são variantes da PP1, medidas à parte. Comparar os algoritmos pelo MASJ; os resultados anteriores com `modelo_pp1 = str_hilbert_samj_v1` correspondem às variantes SAMJ, não ao caso principal.
+
+Limite: `--limite-consulta-min` (padrão 120). O caso que estoura fica como `nao_concluiu` no manifesto e a execução continua.
 
 GiST: Ativo
 Workers: limite de 24 por Gather, configurável por `--workers`; o uso efetivo depende do plano e dos limites do servidor.
@@ -125,3 +129,50 @@ Granularidade-alvo: aproximadamente 64 regiões/grupos por relação, usando um 
 Workload:
 	W1: Intersects(eixo_rua × arruamento_quadras)  (linha × polígono)
 	W2: Intersects(brasil_line × brasil_polygon)  (linha × polígono)
+
+
+## Teste PP5 - Granularidade
+
+Automação: `python3 pp5.py --objetos-a N --objetos-b M` usa as mesmas amostras em todos os casos. `--simular` mostra a matriz sem acessar o banco. Depois, `python3 -m analises.pp5` gera `resultados/pp5/analise/resumo_granularidade.csv`.
+
+Variar: algoritmo, nº de partições (`--particoes`, padrão 4, 16, 64, 256 e 1024; Two-Layer exige quadrados perfeitos)
+Fixar: dataset, workload, workers (`--workers`, padrão 24), GiST
+
+Modelo de join: MASJ, como nas demais PPs. O fator de replicação do resumo corresponde a `1 + α` no modelo de custo de Aji, Vo e Wang (2015), seção 2.3.
+
+SEM_PARTICIONAMENTO não depende do alvo: é medido uma vez, como referência. Comparar os algoritmos pelas partições efetivas, pois o BSP pode não atingir o alvo.
+
+Métricas, uma linha por caso no resumo:
+
+- Desempenho: tempos das repetições, speedup sobre o baseline e melhor alvo de cada algoritmo (H4).
+- Balanceamento: carga (objetos de A + B na partição, com réplicas) máxima/média e coeficiente de variação, partições vazias, fator de replicação e pares candidatos (soma de A × B por partição).
+- Overhead: tempo de particionamento (inclui a inicialização do Maven/JVM), tempo de materialização, tamanho das tabelas e índices, tempo de planejamento (`EXPLAIN` sem executar, primeira vez na sessão e mediana).
+
+Muitas partições exigem locks: cada processo bloqueia 2 tabelas e 2 GiST por partição. Com 24 workers e `max_locks_per_transaction` padrão (64), 1024 partições falharam com `out of shared memory`, então o script avisa no início o valor estimado. Uma execução que falha fica fora do acumulado.
+
+
+## Tamanhos das amostras (PP2 a PP5)
+
+Proposta inicial, ainda a confirmar com o piloto do PP5 e com o total de linhas das tabelas `brasil_point`, `brasil_line` e `brasil_polygon`.
+
+| Nome | A (`--objetos-a`) | B (`--objetos-b`) |
+| ---- | ----------------- | ----------------- |
+| P    | 100 mil           | 50 mil            |
+| M    | 1 milhão          | 500 mil           |
+| G    | 10 milhões        | 5 milhões         |
+
+| PP  | Tamanho                       | Motivo                                                                                       | Consultas (3 aquecimentos + 10 repetições) |
+| --- | ----------------------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| PP2 | M                             | A escala é fixa; basta um tamanho que termine nos 3 workloads                                | 15 casos, 195 consultas                    |
+| PP3 | 10 mil/5 mil e 100 mil/50 mil | A H1 fala de volume, então precisa de mais de um tamanho; o caso sem GiST limita o máximo     | 10 casos, 130 consultas por tamanho        |
+| PP4 | G ou o maior viável           | Dataset grande: com pouco trabalho, os workers quase não têm o que dividir                   | 35 casos, 455 consultas                    |
+| PP5 | O mesmo do PP4                | Permite comparar as duas PPs                                                                 | 17 casos (4 alvos), 221 consultas          |
+
+Cuidados:
+
+- PP3: sem GiST, o baseline testa todos os pares. Em 100 mil × 50 mil são 5 bilhões de pares por consulta, repetidos 13 vezes, e o PP3 não tem limite de tempo. Começar em 10 mil × 5 mil (50 milhões de pares) e só subir depois de medir.
+- O custo pode crescer mais que o tamanho, principalmente com replicação. Subir um degrau de cada vez, em vez de extrapolar a partir do P.
+- Usar a mesma `--semente`: com os mesmos tamanhos e workload, PP4 e PP5 usam as mesmas amostras (conferir `ids_a_md5` e `ids_b_md5`).
+- A proporção 2:1 entre A e B é provisória; preferir uma próxima da real entre linhas e polígonos quando as contagens forem conhecidas.
+
+Pendência no PP2: em `poligono_poligono`, A e B vêm da mesma tabela, com a mesma semente e a mesma ordenação (`sql_amostra` em `pp2.py`), então B fica inteiramente contido em A e cada polígono de B intersecta a própria cópia em A. Isso infla as interseções e a seletividade desse workload. Decidir entre corrigir antes de rodar ou manter e explicar no texto.

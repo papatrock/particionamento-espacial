@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import time
 from datetime import datetime, timezone
 
 from perf_coleta import argumentos_perf, executar_perf, finalizar_perf
@@ -25,14 +26,16 @@ parser.add_argument("--repeticoes", type=int, default=10)
 parser.add_argument("--rodada", type=int, default=1)
 parser.add_argument("--contagem-esperada", type=int,
                     help="Valida o COUNT escalar de cada aquecimento e repetição contra este valor.")
+parser.add_argument("--limite-consulta-ms", type=int, default=0,
+                    help="statement_timeout de cada consulta; 0 desativa. Ao estourar, encerra com código 3.")
 parser.add_argument("--saida", type=Path, default=Path("resultados/pp1"))
 argumentos_perf(parser)
 args = parser.parse_args()
 
 if args.aquecimentos < 0 or args.repeticoes < 1:
     parser.error("Use aquecimentos >= 0 e repeticoes >= 1.")
-if args.workers < 0:
-    parser.error("Use workers >= 0.")
+if args.workers < 0 or args.limite_consulta_ms < 0:
+    parser.error("Use workers >= 0 e limite-consulta-ms >= 0.")
 if args.porta is not None and not 1 <= args.porta <= 65535:
     parser.error("Use uma porta entre 1 e 65535.")
 if args.contagem_esperada is not None and args.contagem_esperada < 0:
@@ -66,6 +69,9 @@ comandos = [
     "SHOW max_parallel_workers;",
     "SHOW max_worker_processes;",
 ]
+if args.limite_consulta_ms:
+    # O SQLSTATE identifica o cancelamento mesmo com lc_messages traduzido no servidor.
+    comandos.extend([r"\set VERBOSITY sqlstate", f"SET statement_timeout = {args.limite_consulta_ms};"])
 
 marcador = "__COLETAR_CONTAGEM__"
 consulta_marcada = [rf"\echo {marcador}", consulta] if args.contagem_esperada is not None else [consulta]
@@ -90,6 +96,7 @@ for opcao, valor in (("--host", args.host), ("--port", args.porta), ("--username
     if valor is not None:
         comando_psql.extend([opcao, str(valor)])
 
+inicio = time.monotonic()
 try:
     if args.perf:
         resultado = executar_perf(comando_psql, preparacao, medicoes, ambiente, pasta, {
@@ -112,6 +119,11 @@ except (OSError, RuntimeError) as erro:
 )
 
 if resultado.returncode != 0:
+    # 57014 também cobre cancelamento manual; só o tempo decorrido confirma o limite.
+    if (args.limite_consulta_ms and "57014" in resultado.stderr
+            and time.monotonic() - inicio >= args.limite_consulta_ms / 1000):
+        print(f"Limite de {args.limite_consulta_ms} ms excedido. Logs em {pasta}.")
+        raise SystemExit(3)
     raise SystemExit(
         f"A execução falhou. Consulte os logs em {pasta}."
     )
