@@ -68,7 +68,7 @@ resultados/pp1/
     └── .consolidacao.lock   # controle local de concorrência; não é dado experimental
 ```
 
-Ao terminar com sucesso, o `pp1.py` chama o consolidador depois de gravar o manifesto concluído. Para reconstruir manualmente, execute `python3 consolidar_pp1.py`. Com uma raiz diferente, use `python3 consolidar_pp1.py --entrada /caminho/da/raiz`, apontando para a pasta que contém os diretórios `pp1_*`.
+Ao terminar com sucesso, o `pp1.py` chama o consolidador depois de gravar o manifesto concluído. Para reconstruir manualmente, execute `python3 consolidar.py pp1`. Com uma raiz diferente, use `python3 consolidar.py pp1 --entrada /caminho/da/raiz`, apontando para a pasta que contém os diretórios `pp1_*`.
 
 | Arquivo | Conteúdo | Uso |
 |---|---|---|

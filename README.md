@@ -57,9 +57,28 @@ Selecione o cenário e o algoritmo nos menus apresentados. Ao final, o programa 
 O runner Java compartilhado pelas cinco PPs é
 [`ParticionamentoRunner`](src/main/java/benchmark/ParticionamentoRunner.java).
 Os scripts o acionam pelo método `Experimento.particionar()`, definido em
-`pp1.py`. Ele recebe arquivos TSV e exporta as associações objeto–partição;
+`nucleo/experimento.py`. Ele recebe arquivos TSV e exporta as associações objeto–partição;
 os scripts Python organizam os experimentos e as consultas são executadas pelo `psql`.
 As propriedades Java `pp1.*` foram mantidas por compatibilidade.
+
+## Organização dos scripts Python
+
+```text
+pp1.py ... pp5.py        matriz e casos específicos de cada pergunta
+coletar_consultas.py     mede uma consulta preparada
+consolidar.py            reconstrói os acumulados: python3 consolidar.py pp5
+analises/                tabelas e gráficos de cada PP
+nucleo/                  código compartilhado
+├── experimento.py       psql, particionadores Java, materialização e medição
+├── consultas.py         identificadores SQL e consultas de join
+├── amostras.py          configuração das fontes, amostras e validação de pares
+├── argumentos.py        argumentos comuns de PP2 a PP5
+├── execucao.py          pasta, manifesto, schema temporário e limpeza de PP2 a PP5
+├── servidor.py          configurações do PostgreSQL e paralelismo dos planos
+├── arquivos.py          gravação de JSON/CSV e procedência da execução
+├── consolidacao.py      lógica dos acumulados
+└── perf_coleta.py       coleta com perf stat
+```
 
 ## Executar o PP1 completo
 
@@ -134,13 +153,13 @@ resultados/pp1/
 Também é possível reconstruir manualmente, sem acessar o banco nem executar consultas:
 
 ```bash
-python3 consolidar_pp1.py
+python3 consolidar.py pp1
 ```
 
 Se os experimentos usaram outro diretório com `pp1.py --saida`, informe esse mesmo diretório:
 
 ```bash
-python3 consolidar_pp1.py --entrada /caminho/dos/resultados/pp1
+python3 consolidar.py pp1 --entrada /caminho/dos/resultados/pp1
 ```
 
 O consolidador usa apenas a biblioteca padrão do Python e lê os CSVs da raiz de cada pasta `pp1_*` cujo manifesto global esteja como `concluido`. Ele não importa novamente os CSVs internos de `medicoes/`, não altera os brutos e não faz append nos acumulados. Repetir a consolidação produz o mesmo conteúdo enquanto as fontes não mudarem.
@@ -182,7 +201,7 @@ Se `.venv` já existir, basta ativá-lo e instalar o arquivo de requisitos. As v
 Depois de consolidar os resultados, gere as análises e os gráficos:
 
 ```bash
-python consolidar_pp1.py
+python consolidar.py pp1
 python -m analises.pp1
 ```
 
