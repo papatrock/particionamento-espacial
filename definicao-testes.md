@@ -175,4 +175,4 @@ Cuidados:
 - Usar a mesma `--semente`: com os mesmos tamanhos e workload, PP4 e PP5 usam as mesmas amostras (conferir `ids_a_md5` e `ids_b_md5`).
 - A proporção 2:1 entre A e B é provisória; preferir uma próxima da real entre linhas e polígonos quando as contagens forem conhecidas.
 
-Pendência no PP2: em `poligono_poligono`, A e B vêm da mesma tabela, com a mesma semente e a mesma ordenação (`sql_amostra` em `pp2.py`), então B fica inteiramente contido em A e cada polígono de B intersecta a própria cópia em A. Isso infla as interseções e a seletividade desse workload. Decidir entre corrigir antes de rodar ou manter e explicar no texto.
+Amostras de polígonos: em `poligono_poligono`, A e B vêm da mesma tabela. B fica com os primeiros polígonos da ordem sorteada e A com os seguintes, sem repetir nenhum, para um polígono não intersectar a própria cópia. O B é o mesmo nos três workloads, e `brasil_polygon` precisa ter ao menos `--objetos-a` + `--objetos-b` polígonos. Resultados anteriores desse workload usavam amostras sobrepostas e não são comparáveis.
