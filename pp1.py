@@ -28,10 +28,12 @@ DATASETS = {
                "tipos": ("MultiLineString", "MultiPolygon"),
                "tipos_origem": ("LineString", "Polygon")},
     # Recortes de experimentos/regioes/criar_regioes.sql.
-    **{nome: {"cenario": "linha_poligono", "schema": "regioes", "tabelas": (f"{nome}_line", f"{nome}_polygon"),
-              "geom": "geom", "id": "benchmark_id", "srid": 3857,
-              "tipos": ("MultiLineString", "MultiPolygon"), "tipos_origem": ("LineString", "Polygon")}
-       for nome in ("es_sul", "ms_campo_grande", "pr_centro", "pr_curitiba")},
+    # O sufixo _mapa usa os polígonos sem limites administrativos (filtrar_limites.sql).
+    **{nome + sufixo: {"cenario": "linha_poligono", "schema": "regioes",
+                       "tabelas": (f"{nome}_line", f"{nome}_polygon{sufixo}"),
+                       "geom": "geom", "id": "benchmark_id", "srid": 3857,
+                       "tipos": ("MultiLineString", "MultiPolygon"), "tipos_origem": ("LineString", "Polygon")}
+       for nome in ("es_sul", "ms_campo_grande", "pr_centro", "pr_curitiba") for sufixo in ("", "_mapa")},
 }
 
 

@@ -191,6 +191,33 @@ Justificativa:
 Limitação: 8 não foi medido como o melhor valor, porque nas execuções de 04/11 nenhum caso passou de 9 workers. O PP4 com workers fixos testa 16 e 24 de verdade. Se ele mostrar outro valor claramente melhor, rever esta escolha e repetir as PPs afetadas.
 
 
+## Tratamento dos dados
+
+As tabelas originais (`brasil_line`, `brasil_polygon` e `brasil_point`) não são alteradas. O tratamento vale para as regiões, em tabelas próprias do schema `regioes`, nesta ordem:
+
+1. **Recorte (`experimentos/regioes/criar_regioes.sql`):** seleciona os objetos que tocam a janela da região, com `ST_Intersects`. As geometrias ficam inteiras, sem corte na borda.
+2. **Remoção de limites (`experimentos/regioes/filtrar_limites.sql`):** cria as tabelas `<região>_polygon_mapa`, sem os polígonos com `boundary` igual a `administrative` ou `timezone`. As tabelas sem esse filtro continuam disponíveis para comparação.
+
+**Regra:** é a mesma para todas as regiões e usa o atributo do OSM, não o tamanho. Saem todos os níveis administrativos, do país aos bairros, e o fuso. Ficam os demais objetos, inclusive os grandes, como rios, áreas protegidas, terras indígenas e parques.
+
+**Motivo:** esses limites ficam aninhados, então uma mesma linha intersecta vários deles, e os maiores intersectam praticamente tudo. Assim, a junção passaria a medir em grande parte se a linha está dentro do país, e não a relação entre os objetos do mapa. Na região `es_sul`:
+
+| Polígonos | Quantidade | Interseções com as linhas | % |
+| --------- | ---------- | ------------------------- | - |
+| `administrative` e `timezone` | 53 (0,18%) | 252.393 | 78,7% |
+| `protected_area` | 14 | 330 | 0,1% |
+| Sem `boundary` | 29.491 | 68.110 | 21,2% |
+| **Total** | **29.558** | **320.833** | **100%** |
+
+**Limites e cuidados:**
+
+- A medição é só de `es_sul`. Nas outras regiões, só se sabe que esses polígonos existem. As quantidades removidas por região são informadas por `filtrar_limites.sql`.
+- O CV e a escolha das regiões vêm de `medir_regioes.py`, antes deste filtro. Como sai menos de 1% dos polígonos em `es_sul` e `pr_curitiba`, o efeito esperado no total é pequeno, mas o CV não foi recalculado.
+- Remover objetos muda o dataset. Por isso, a metodologia precisa declarar a regra e a quantidade removida, e a faixa de 54 mil é medida com e sem o filtro, para mostrar o efeito.
+- As amostras do Brasil, o PP1 Brasil e os resultados de 04/11 não têm este filtro. Falta decidir se a rodada do Brasil completo também o usará.
+- **Validade das geometrias:** nenhum tratamento adicional foi necessário. PP2 a PP5 validam a fonte antes de amostrar (geometria válida, 2D, SRID e tipo corretos) e param se encontrarem problema. As execuções de 04/11 passaram por essa validação.
+
+
 # Erros
 
 ## Número de workers decidido pelo planejador (corrigido)
