@@ -97,7 +97,7 @@ python3 pp1.py --simular
 No servidor de testes, use a conexão local habitual do usuário do sistema:
 
 ```bash
-python3 pp1.py --banco benchmark --workers 24 --particoes 64
+python3 pp1.py --banco benchmark --workers 8 --particoes 64
 ```
 
 No PC com autenticação TCP e outro nome de banco:
@@ -115,7 +115,7 @@ python3 pp1.py --datasets curitiba --algoritmos SEM_PARTICIONAMENTO STR \
   --aquecimentos 1 --repeticoes 2
 ```
 
-Os padrões são 24 workers por Gather, 64 partições como alvo, 3 aquecimentos, 10 repetições, rodada 1 e GiST disponível. `--datasets`, `--algoritmos`, `--workers`, `--particoes`, `--aquecimentos`, `--repeticoes`, `--rodada` e `--saida` permitem selecionar a execução.
+Os padrões são 8 workers por Gather, 64 partições como alvo, 3 aquecimentos, 10 repetições, rodada 1 e GiST disponível. `--datasets`, `--algoritmos`, `--workers`, `--particoes`, `--aquecimentos`, `--repeticoes`, `--rodada` e `--saida` permitem selecionar a execução.
 
 O orquestrador verifica IDs únicos, geometrias não nulas e SRIDs antes de preparar cada dataset. Assume `gid` em Curitiba e `osm_id` no Brasil; use `--id-curitiba` ou `--id-brasil` para indicar outra chave inteira única nas duas entradas do dataset. Na preparação do PP1, os IDs são preservados como `BIGINT`. O runner interativo anterior continua usando seu caminho de materialização original.
 
