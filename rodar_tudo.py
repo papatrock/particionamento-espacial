@@ -24,16 +24,14 @@ def amostra(a, b):
 
 
 # (nome, script, argumentos, horas no máximo, respeita o prazo de início)
+# Argumentos da etapa vêm depois dos padrões, então um --saida aqui substitui o padrão.
 ETAPAS = [
-    ("pp3_10mil", "pp3", amostra(10_000, 5_000), 1, True),
-    ("pp3_30mil", "pp3", amostra(30_000, 15_000), 1.5, True),
-    ("pp2_100mil", "pp2", amostra(100_000, 50_000), 2, True),
-    ("pp5_100mil", "pp5", amostra(100_000, 50_000) + ALVOS, 1.5, True),
-    ("pp4_100mil", "pp4", amostra(100_000, 50_000), 2.5, True),
-    ("pp2_1milhao", "pp2", amostra(1_000_000, 500_000), 2, True),
-    ("pp5_1milhao", "pp5", amostra(1_000_000, 500_000) + ALVOS, 3, True),
-    ("pp1_curitiba", "pp1", ["--datasets", "curitiba"], 1, False),
-    ("pp1_brasil", "pp1", ["--datasets", "brasil"], 12, False),
+    # Faixa de 54 mil, com e sem os limites administrativos, ao lado de Curitiba.
+    ("pp1_54mil", "pp1", ["--datasets", "curitiba", "es_sul", "es_sul_mapa", "ms_campo_grande", "ms_campo_grande_mapa"], 3, True),
+    # Piloto para estimar a duração da faixa de 500 mil, na região com skew.
+    ("piloto_pp5_pr_curitiba", "pp5", ["--config", "experimentos/regioes/pr_curitiba_mapa.json", *amostra(225_443, 332_511), *ALVOS,
+                                       "--aquecimentos", "1", "--repeticoes", "2",
+                                       "--saida", "/disk1/pol21/resultados/piloto_500mil/pp5"], 4, True),
 ]
 ESPERA_LIMPEZA_S = 600
 parar = False
@@ -75,7 +73,7 @@ def interromper(processo):
 
 
 def executar_etapa(script, argumentos, horas, saida, log, pastas, disco_minimo):
-    comando = [sys.executable, f"{script}.py", *argumentos, "--banco", "benchmark", "--saida", str(saida / script)]
+    comando = [sys.executable, f"{script}.py", "--banco", "benchmark", "--saida", str(saida / script), *argumentos]
     limite = time.monotonic() + horas * 3600
     with log.open("w", encoding="utf-8") as arquivo:
         # Grupo próprio: o sinal alcança psql e Maven. Em segundo plano, o SIGINT herdado pode estar ignorado.

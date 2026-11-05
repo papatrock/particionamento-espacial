@@ -37,7 +37,14 @@ Join entre linhas e polígonos em `es_sul`, medido com `ST_Intersects`:
 
 Os níveis 2, 3 e 4 e o fuso intersectam todas as 31.163 linhas. Cada linha tem, em média, 10,3 interseções.
 
-**Decisão:** esses polígonos saem nas tabelas `<região>_polygon_mapa`, criadas por `filtrar_limites.sql`. A regra e o motivo estão na seção "Tratamento dos dados" de `definicao-testes.md`. A medição é só de `es_sul`; em `pr_curitiba`, a contagem indica 708 polígonos a remover.
+**Decisão:** esses polígonos saem nas tabelas `<região>_polygon_mapa`, criadas por `filtrar_limites.sql`. A regra e o motivo estão na seção "Tratamento dos dados" de `definicao-testes.md`. A medição das interseções é só de `es_sul`.
+
+| Região | Polígonos | Removidos | Mantidos | Linhas | Total usado | Razão | Pontos |
+| ------ | --------- | --------- | -------- | ------ | ----------- | ----- | ------ |
+| `es_sul_mapa` | 29.558 | 53 (0,18%) | 29.505 | 31.163 | 60.668 | 1,06 | 1.891 |
+| `ms_campo_grande_mapa` | 25.625 | 254 (0,99%) | 25.371 | 34.603 | 59.974 | 1,36 | 13.838 |
+| `pr_centro_mapa` | 272.686 | 735 (0,27%) | 271.951 | 288.114 | 560.065 | 1,06 | 66.348 |
+| `pr_curitiba_mapa` | 333.219 | 708 (0,21%) | 332.511 | 225.443 | 557.954 | 1,47 | 476.404 |
 
 As coordenadas exatas (`xmin`, `ymin`, `xmax`, `ymax`) estão em `/disk1/pol21/resultados/regioes/regioes_candidatas.csv`. Os nomes de lugares são aproximados, deduzidos das coordenadas, e precisam ser conferidos no mapa.
 
@@ -127,6 +134,5 @@ A região de Curitiba vem do OSM. Não é o mesmo dado do dataset Curitiba, de o
 
 ## Próximos passos
 
-1. Rodar `filtrar_limites.sql` no `jatoba2` e registrar as quantidades removidas.
-2. Medir a faixa de 54 mil com e sem o filtro.
-3. Rodar um piloto na faixa de 500 mil, com o filtro.
+1. Medir a faixa de 54 mil com e sem o filtro (`rodar_tudo.py`).
+2. Avaliar o piloto da faixa de 500 mil, com o filtro (`rodar_tudo.py`).
