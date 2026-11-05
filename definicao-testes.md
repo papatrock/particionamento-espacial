@@ -218,6 +218,22 @@ As tabelas originais (`brasil_line`, `brasil_polygon` e `brasil_point`) não sã
 - **Validade das geometrias:** nenhum tratamento adicional foi necessário. PP2 a PP5 validam a fonte antes de amostrar (geometria válida, 2D, SRID e tipo corretos) e param se encontrarem problema. As execuções de 04/11 passaram por essa validação.
 
 
+## Rodada principal
+
+Definida em `rodar_tudo.py`, com 8 workers fixos (exceto o PP4, que varia), 3 aquecimentos, 10 repetições e as tabelas `_mapa`.
+
+| PP | Regiões | Tamanho | Observação | Tempo máximo por etapa |
+| -- | ------- | ------- | ---------- | ---------------------- |
+| PP1 | Curitiba, `es_sul_mapa`, `ms_campo_grande_mapa`, `pr_centro_mapa`, `pr_curitiba_mapa` | todos os objetos | Com variantes SAMJ; limite de 2 h por consulta | 5 h |
+| PP3 | `es_sul_mapa` | todos os objetos | Com e sem GiST | 2 h |
+| PP3 | `pr_centro_mapa` | A e B com 60 mil | Com e sem GiST | 4 h |
+| PP4 | `es_sul_mapa`, `ms_campo_grande_mapa` | todos os objetos | Workers de 0 a 24, com variantes SAMJ | 3 h |
+| PP2 | `pr_centro_mapa`, `pr_curitiba_mapa` | A e B com 60 mil | 3 workloads | 3 h |
+| PP5 | `pr_centro_mapa`, `pr_curitiba_mapa` | todos os objetos | 4, 16, 64 e 256 partições, com variantes SAMJ; STR e Hilbert em MASJ só em 4 e 64 | 6 h |
+
+Uma etapa que estoura o tempo fica como `tempo_maximo`, fora do acumulado, e as seguintes continuam. O PP1 Brasil fica fora desta rodada e é opcional.
+
+
 # Erros
 
 ## Número de workers decidido pelo planejador (corrigido)
