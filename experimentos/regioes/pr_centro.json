@@ -1,0 +1,30 @@
+{
+  "dataset": "pr_centro",
+  "srid": 3857,
+  "relacoes": {
+    "pontos": {
+      "schema": "regioes",
+      "tabela": "pr_centro_point",
+      "id": "osm_id",
+      "geom": "geom"
+    },
+    "linhas": {
+      "schema": "regioes",
+      "tabela": "pr_centro_line",
+      "id": "benchmark_id",
+      "geom": "geom"
+    },
+    "poligonos_a": {
+      "schema": "regioes",
+      "tabela": "pr_centro_polygon",
+      "id": "benchmark_id",
+      "geom": "geom"
+    },
+    "poligonos_b": {
+      "schema": "regioes",
+      "tabela": "pr_centro_polygon",
+      "id": "benchmark_id",
+      "geom": "geom"
+    }
+  }
+}
