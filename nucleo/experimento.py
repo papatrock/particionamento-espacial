@@ -10,6 +10,8 @@ from nucleo.consultas import SAIDA_A, SAIDA_B, identificador, literal
 from nucleo.servidor import resumir_plano
 
 ALGORITMOS = ("SEM_PARTICIONAMENTO", "TWO_LAYER", "STR", "HILBERT", "BSP")
+# STR, Hilbert e BSP seguem o MASJ de Aji, Vo e Wang (2015); as variantes medem a associação única à parte.
+VARIANTES_SAMJ = {"STR_SAMJ": "STR", "HILBERT_SAMJ": "HILBERT"}
 CODIGO_LIMITE = 3  # Saída de coletar_consultas.py quando uma consulta excede o limite.
 
 

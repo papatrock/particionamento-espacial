@@ -84,7 +84,7 @@ nucleo/                  código compartilhado
 
 `pp1.py` prepara e mede as catorze combinações: Curitiba (`eixo_rua × arruamento_quadras`) e Brasil (`brasil_line × brasil_polygon`), cada uma com `SEM_PARTICIONAMENTO`, `TWO_LAYER`, `STR`, `HILBERT`, `BSP`, `STR_SAMJ` e `HILBERT_SAMJ`.
 
-`STR`, `HILBERT` e `BSP` usam associação múltipla com deduplicação (MASJ), como em Aji, Vo e Wang (2015), em todas as PPs. `STR_SAMJ` e `HILBERT_SAMJ` são variantes da PP1 com associação única (SAMJ): cada objeto fica em um só grupo e a consulta percorre os pares de grupos cujos MBRs se tocam.
+`STR`, `HILBERT` e `BSP` usam associação múltipla com deduplicação (MASJ), como em Aji, Vo e Wang (2015), em todas as PPs. `STR_SAMJ` e `HILBERT_SAMJ` são variantes de PP1, PP4 e PP5 com associação única (SAMJ): cada objeto fica em um só grupo e a consulta percorre os pares de grupos cujos MBRs se tocam.
 
 Cada consulta medida tem um limite de tempo (`--limite-consulta-min`, padrão 120; 0 desativa). Ao estourar, inclusive em um aquecimento, o caso fica com status `nao_concluiu` no `manifesto.json`, sem linhas em `consultas.csv`, e a execução continua, permanecendo elegível para o acumulado. O limite não cobre a preparação (particionamento, materialização e GiST) nem a contagem de referência.
 

@@ -11,19 +11,34 @@ from nucleo.amostras import WORKLOADS, carregar_config, validar_pares
 from nucleo.argumentos import criar_parser, validar_argumentos
 from nucleo.arquivos import salvar_json
 from nucleo.consultas import SAIDA_A, SAIDA_B, consulta_direta, consulta_particionada
+from nucleo.experimento import VARIANTES_SAMJ
 from nucleo.execucao import execucao_amostrada
 from nucleo.servidor import registrar_servidor, resumir_plano
 
 
 def argumentos(argv=None):
-    parser = criar_parser(particoes_lista=True)
+    parser = criar_parser(particoes_lista=True, variantes_samj=True)
     parser.description = __doc__
+    parser.add_argument("--particoes-masj", type=int, nargs="+",
+                        help="Alvos de STR e Hilbert em MASJ, os casos mais lentos (padrão: todos de --particoes).")
     parser.set_defaults(workloads=["linha_poligono"], saida=Path("resultados/pp5"))
     args = validar_argumentos(argv, parser=parser)
     if len(args.workloads) != 1:
         parser.error("A PP5 fixa um workload por execução; informe apenas um em --workloads")
     args.particoes = sorted(set(args.particoes))
+    if args.particoes_masj is not None:
+        args.particoes_masj = sorted(set(args.particoes_masj))
+        if not set(args.particoes_masj) <= set(args.particoes):
+            parser.error("--particoes-masj precisa ser um subconjunto de --particoes")
     return args
+
+
+def alvos_do_algoritmo(algoritmo, args):
+    if algoritmo == "SEM_PARTICIONAMENTO":
+        return [None]
+    if algoritmo in ("STR", "HILBERT") and args.particoes_masj is not None:
+        return args.particoes_masj
+    return args.particoes
 
 
 def avisar_locks(servidor, args):
@@ -41,10 +56,13 @@ def resumir_balanceamento(metadata):
     """Mede a distribuição das associações; a replicação entra na carga de cada partição."""
     ocupacoes = metadata["ocupacoes"]
     cargas = [o["objetos_a"] + o["objetos_b"] for o in ocupacoes]
-    pares = [o["objetos_a"] * o["objetos_b"] for o in ocupacoes]
+    # No SAMJ, o trabalho vem dos pares de grupos comparados, não só de cada grupo consigo mesmo.
+    por_id = {o["id"]: o for o in ocupacoes}
+    pares = ([por_id[p["a"]]["objetos_a"] * por_id[p["b"]]["objetos_b"] for p in metadata["pares_particoes"]]
+             if metadata.get("modelo_join") == "SAMJ" else [o["objetos_a"] * o["objetos_b"] for o in ocupacoes])
     media, media_pares = statistics.mean(cargas), statistics.mean(pares)
     return {"particoes_vazias": cargas.count(0),
-            "particoes_com_a_e_b": sum(p > 0 for p in pares),
+            "particoes_com_a_e_b": sum(o["objetos_a"] > 0 and o["objetos_b"] > 0 for o in ocupacoes),
             "carga_media": media, "carga_maxima": max(cargas),
             "carga_max_sobre_media": max(cargas) / media if media else "",
             "carga_cv": statistics.pstdev(cargas) / media if media else "",
@@ -80,20 +98,22 @@ def preparar_caso(exp, dataset, algoritmo, entradas, caso):
     """Particiona e materializa fora das medições, separando o custo de cada etapa."""
     with tempfile.TemporaryDirectory(prefix=".associacoes-", dir=caso) as temp_assoc:
         inicio = time.perf_counter()
-        metadata = exp.particionar(algoritmo, entradas, Path(temp_assoc), caso)
+        metadata = exp.particionar(VARIANTES_SAMJ.get(algoritmo, algoritmo), entradas, Path(temp_assoc), caso,
+                                   associacao_unica=algoritmo in VARIANTES_SAMJ)
         meio = time.perf_counter()
         exp.materializar(dataset, Path(temp_assoc), metadata, caso)
         fim = time.perf_counter()
-    validar_pares(exp, dataset, algoritmo, caso)
+    validar_pares(exp, dataset, VARIANTES_SAMJ.get(algoritmo, algoritmo), caso, metadata)
     return metadata, {"particionamento_s": meio - inicio, "materializacao_s": fim - meio,
-                      "tamanho_saidas_bytes": tamanho_saidas(exp, caso)}
+                      "tamanho_saidas_bytes": tamanho_saidas(exp, caso),
+                      "pares_de_particoes": len(metadata["pares_particoes"]) if "pares_particoes" in metadata else ""}
 
 
 def executar(args):
     config = carregar_config(args.config)
     workload = args.workloads[0]
     casos = [(algoritmo, alvo) for algoritmo in args.algoritmos
-             for alvo in ([None] if algoritmo == "SEM_PARTICIONAMENTO" else args.particoes)]
+             for alvo in alvos_do_algoritmo(algoritmo, args)]
     if args.simular:
         for algoritmo, alvo in casos:
             print(f"{config['dataset']} / {workload} / {algoritmo}: alvo={alvo or 'N/A'}; "
@@ -125,7 +145,7 @@ def executar(args):
                 registro = run.iniciar_caso(workload=workload, algoritmo=algoritmo, particoes_alvo=alvo or "")
                 if alvo is None:
                     metadata = {"particoes_efetivas": "", "capacidade": ""}
-                    preparo = {"particionamento_s": "", "materializacao_s": "", "tamanho_saidas_bytes": ""}
+                    preparo = {"particionamento_s": "", "materializacao_s": "", "tamanho_saidas_bytes": "", "pares_de_particoes": ""}
                     balanceamento = dict.fromkeys(
                         ("particoes_vazias", "particoes_com_a_e_b", "carga_media", "carga_maxima",
                          "carga_max_sobre_media", "carga_cv", "fator_replicacao", "pares_candidatos",
@@ -135,7 +155,7 @@ def executar(args):
                     exp.args.particoes = alvo
                     metadata, preparo = preparar_caso(exp, dataset, algoritmo, entradas, caso)
                     balanceamento = resumir_balanceamento(metadata)
-                    consulta = consulta_particionada(algoritmo)
+                    consulta = consulta_particionada(VARIANTES_SAMJ.get(algoritmo, algoritmo), metadata)
                 atual = registrar_servidor(exp, caso)
                 if atual != servidor:
                     raise RuntimeError("Configuração do servidor mudou entre casos; confira os arquivos servidor.json")

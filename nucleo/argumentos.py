@@ -5,18 +5,19 @@ from pathlib import Path
 
 from nucleo.amostras import WORKLOADS
 from nucleo.arquivos import RAIZ
-from nucleo.experimento import ALGORITMOS
+from nucleo.experimento import ALGORITMOS, VARIANTES_SAMJ
 from nucleo.perf_coleta import argumentos_perf
 
 
-def criar_parser(workers_lista=False, particoes_lista=False):
+def criar_parser(workers_lista=False, particoes_lista=False, variantes_samj=False):
     p = argparse.ArgumentParser()
     p.add_argument("--config", type=Path, default=RAIZ / "experimentos/pp2/brasil.json")
     p.add_argument("--objetos-a", type=int, required=True, help="Quantidade exata de objetos em A em cada workload.")
     p.add_argument("--objetos-b", type=int, required=True, help="Quantidade exata de polígonos em B, compartilhados pelos workloads.")
     p.add_argument("--semente", type=int, default=42, help="Seleção determinística por hash do ID e semente.")
     p.add_argument("--workloads", nargs="+", choices=WORKLOADS, default=list(WORKLOADS))
-    p.add_argument("--algoritmos", nargs="+", choices=ALGORITMOS, default=list(ALGORITMOS))
+    algoritmos = [*ALGORITMOS, *VARIANTES_SAMJ] if variantes_samj else list(ALGORITMOS)
+    p.add_argument("--algoritmos", nargs="+", choices=algoritmos, default=algoritmos)
     p.add_argument("--banco", default="benchmark")
     p.add_argument("--host")
     p.add_argument("--porta", type=int)

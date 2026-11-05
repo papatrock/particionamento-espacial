@@ -8,12 +8,13 @@ from nucleo.amostras import WORKLOADS, carregar_config, validar_pares
 from nucleo.argumentos import criar_parser, validar_argumentos
 from nucleo.arquivos import salvar_json
 from nucleo.consultas import consulta_direta, consulta_particionada
+from nucleo.experimento import VARIANTES_SAMJ
 from nucleo.execucao import execucao_amostrada
 from nucleo.servidor import registrar_servidor, resumir_plano
 
 
 def argumentos(argv=None):
-    parser = criar_parser(workers_lista=True)
+    parser = criar_parser(workers_lista=True, variantes_samj=True)
     parser.description = __doc__
     parser.set_defaults(workloads=["linha_poligono"], saida=Path("resultados/pp4"))
     args = validar_argumentos(argv, parser=parser)
@@ -63,11 +64,13 @@ def executar(args):
                 consulta = consulta_direta(dataset)
                 if algoritmo != "SEM_PARTICIONAMENTO":
                     print(f"Preparando {algoritmo} uma vez para todos os limites de workers...", flush=True)
+                    base = VARIANTES_SAMJ.get(algoritmo, algoritmo)
                     with tempfile.TemporaryDirectory(prefix=".associacoes-", dir=algoritmo_dir) as temp_assoc:
-                        metadata = exp.particionar(algoritmo, entradas, Path(temp_assoc), algoritmo_dir)
+                        metadata = exp.particionar(base, entradas, Path(temp_assoc), algoritmo_dir,
+                                                   associacao_unica=algoritmo in VARIANTES_SAMJ)
                         exp.materializar(dataset, Path(temp_assoc), metadata, algoritmo_dir)
-                    validar_pares(exp, dataset, algoritmo, algoritmo_dir)
-                    consulta = consulta_particionada(algoritmo)
+                    validar_pares(exp, dataset, base, algoritmo_dir, metadata)
+                    consulta = consulta_particionada(base, metadata)
                 for workers in args.workers:
                     exp.args.workers = workers
                     print(f"PP4 {config['dataset']} / {workload} / {algoritmo} / workers={workers}", flush=True)

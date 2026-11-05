@@ -11,12 +11,10 @@ import tempfile
 from nucleo.arquivos import metadados_execucao, salvar_json
 from nucleo.consolidacao import CONSULTAS, PERF, consolidar, imprimir_resumo
 from nucleo.consultas import consulta_direta, consulta_particionada
-from nucleo.experimento import ALGORITMOS, Experimento, LimiteExcedido
+from nucleo.experimento import ALGORITMOS, VARIANTES_SAMJ, Experimento, LimiteExcedido
 from nucleo.perf_coleta import argumentos_perf, verificar_perf
 
 
-# STR, Hilbert e BSP seguem o MASJ de Aji, Vo e Wang (2015); as variantes medem a associação única à parte.
-VARIANTES_SAMJ = {"STR_SAMJ": "STR", "HILBERT_SAMJ": "HILBERT"}
 MODELO_PP1 = "masj_variantes_samj_workers_fixos_v3"
 DATASETS = {
     "curitiba": {"cenario": "ruas_quadras", "tabelas": ("eixo_rua", "arruamento_quadras"),
