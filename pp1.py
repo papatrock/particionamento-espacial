@@ -54,7 +54,7 @@ def argumentos():
                         help="Tempo máximo de cada consulta medida, em minutos; ao estourar, o caso é registrado "
                              "como nao_concluiu e a execução segue (padrão: 120; 0 desativa).")
     parser.add_argument("--particoes", type=int, default=64, help="Granularidade-alvo (padrão: 64).")
-    parser.add_argument("--workers", type=int, default=24)
+    parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--aquecimentos", type=int, default=3)
     parser.add_argument("--repeticoes", type=int, default=10)
     parser.add_argument("--rodada", type=int, default=1)

@@ -31,7 +31,7 @@ def criar_parser(workers_lista=False, particoes_lista=False):
         p.add_argument("--workers", type=int, nargs="+", default=[0, 1, 2, 4, 8, 16, 24],
                        help="Limites por Gather a comparar, incluindo 0 como referência serial.")
     else:
-        p.add_argument("--workers", type=int, default=24)
+        p.add_argument("--workers", type=int, default=8)
     p.add_argument("--aquecimentos", type=int, default=3)
     p.add_argument("--repeticoes", type=int, default=10)
     p.add_argument("--rodada", type=int, default=1)

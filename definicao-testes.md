@@ -119,7 +119,7 @@ Modelo de join: STR, Hilbert e BSP usam MASJ em todas as PPs, como em Aji, Vo e 
 Limite: `--limite-consulta-min` (padrão 120). O caso que estoura fica como `nao_concluiu` no manifesto e a execução continua.
 
 GiST: Ativo
-Workers: limite de 24 por Gather, configurável por `--workers`; o uso efetivo depende do plano e dos limites do servidor.
+Workers: exatamente 8 por Gather, configurável por `--workers`, salvo falta de workers no servidor.
 Granularidade-alvo: aproximadamente 64 regiões/grupos por relação, usando um molde compartilhado entre as duas relações.
 
 - Two-Layer: 8 × 8 células.
@@ -136,7 +136,7 @@ Workload:
 Automação: `python3 pp5.py --objetos-a N --objetos-b M` usa as mesmas amostras em todos os casos. `--simular` mostra a matriz sem acessar o banco. Depois, `python3 -m analises.pp5` gera `resultados/pp5/analise/resumo_granularidade.csv`.
 
 Variar: algoritmo, nº de partições (`--particoes`, padrão 4, 16, 64, 256 e 1024; Two-Layer exige quadrados perfeitos)
-Fixar: dataset, workload, workers (`--workers`, padrão 24), GiST
+Fixar: dataset, workload, workers (`--workers`, padrão 8), GiST
 
 Modelo de join: MASJ, como nas demais PPs. O fator de replicação do resumo corresponde a `1 + α` no modelo de custo de Aji, Vo e Wang (2015), seção 2.3.
 
@@ -176,3 +176,45 @@ Cuidados:
 - A proporção 2:1 entre A e B é provisória; preferir uma próxima da real entre linhas e polígonos quando as contagens forem conhecidas.
 
 Amostras de polígonos: em `poligono_poligono`, A e B vêm da mesma tabela. B fica com os primeiros polígonos da ordem sorteada e A com os seguintes, sem repetir nenhum, para um polígono não intersectar a própria cópia. O B é o mesmo nos três workloads, e `brasil_polygon` precisa ter ao menos `--objetos-a` + `--objetos-b` polígonos. Resultados anteriores desse workload usavam amostras sobrepostas e não são comparáveis.
+
+## Número de workers fixado em 8
+
+PP1, PP2, PP3 e PP5 usam exatamente 8 workers (`--workers`, padrão 8). O PP4 continua variando esse número.
+
+Justificativa:
+
+- **Ganho até 8:** no PP4 de 04/11 (100 mil/50 mil, `linha_poligono`), passar do limite 4 para o limite 8 reduziu a mediana em 24% no Two-Layer, 23% no STR, 30% no Hilbert e 23% no BSP. Com o limite 8, o planejador lançou 7 workers nesses casos, o que limita a precisão dessa comparação.
+- **Próximo do observado:** no PP4 e no PP5 de 04/11, com 64 partições, o planejador escolheu 7 workers. Fixar 8 muda pouco esse nível de paralelismo e o torna igual em todos os casos.
+- **Locks:** com 256 partições, a estimativa no `jatoba2` (`max_locks_per_transaction` = 64) é de 9.216 entradas com 8 workers e 25.600 com 24, para uma capacidade estimada de 16.896. Com 8, não é preciso reiniciar o servidor.
+- **Indicativo em dados sintéticos:** em um teste com 10 mil/5 mil e uma repetição, o limite 8 foi mais rápido que o 24: baseline com 34 ms contra 55 ms, e STR com 64 partições com 67 ms contra 111 ms. Por serem dados pequenos, isso não vale como resultado.
+
+Limitação: 8 não foi medido como o melhor valor, porque nas execuções de 04/11 nenhum caso passou de 9 workers. O PP4 com workers fixos testa 16 e 24 de verdade. Se ele mostrar outro valor claramente melhor, rever esta escolha e repetir as PPs afetadas.
+
+
+# Erros
+
+## Número de workers decidido pelo planejador (corrigido)
+
+Encontrado nas execuções de 04/11/2026, feitas no `jatoba2` com o commit `5efa1a8` (`pp1_*`, `pp2_*`, `pp3_*`, `pp4_*` e `pp5_*` de 20261104, em `resultados/lab`).
+
+**Problema:** `--workers` definia apenas o limite `max_parallel_workers_per_gather`. Abaixo dele, o PostgreSQL escolhia a quantidade, conforme o tamanho da tabela e, nas tabelas particionadas, o número de partições: `log2(partições) + 1`.
+
+| Partições        | 4 | 15 | 16 | 64 | 66 | 256 | 380 |
+| ---------------- | - | -- | -- | -- | -- | --- | --- |
+| Workers lançados | 3 | 4  | 5  | 7  | 7  | 9   | 9   |
+
+Observado no PP5 com 100 mil/50 mil, com limite de 24 workers.
+
+| PP  | Efeito nos resultados | Situação dos resultados de 04/11 |
+| --- | --------------------- | -------------------------------- |
+| PP1 | Curitiba e Brasil: o baseline e os particionados podem ter usado quantidades diferentes de workers, e o speedup pode misturar particionamento e paralelismo. | Exploratórios |
+| PP2 | Com 100 mil/50 mil, o baseline usou 2 workers em `linha_poligono`, contra 7 dos particionados; o speedup mistura os dois efeitos. | Exploratórios |
+| PP3 | A comparação entre baseline e particionados, usada na H1, tem a mesma mistura. | Exploratórios |
+| PP4 | Os limites 16 e 24 não foram testados: os particionados pararam em 7 workers e o baseline em 2. O speedup para em 8 por causa disso, então não é um limite de escalabilidade. Com 2 workers, o baseline também troca a ordem do join e fica mais lento que com 1. | Inválidos acima de 8 workers; o restante é exploratório |
+| PP5 | Mais partições significavam mais workers, então o efeito da granularidade (H4) ficou misturado com o do paralelismo. | Exploratórios |
+
+**Correção:** `Experimento.medir` agora define `parallel_workers` nas tabelas medidas: nas partições ou, no baseline, nas entradas. Como esse valor é igual ao limite, o caso usa exatamente o número pedido. No PP1, as tabelas originais voltam ao padrão depois do baseline.
+
+**Como conferir:** o script avisa quando o plano lança um número diferente do pedido, e `plano_workers_lancados_max` registra o valor no PP4 e no PP5. Execuções novas têm `workers_fixos = sim` nos CSVs de PP2 a PP5 e `modelo_pp1 = masj_variantes_samj_workers_fixos_v3` no PP1.
+
+**Limitação:** o valor é fixado antes das repetições, mas o `EXPLAIN` roda depois delas. Se faltarem workers no servidor durante uma repetição, ela pode usar menos do que o pedido.
