@@ -13,6 +13,32 @@ Saída de `medir_regioes.py`, executado em novembro de 2026 no `jatoba2`, com os
 
 As janelas do centro do Paraná e da região de Curitiba se sobrepõem em 48 km (em SRID 3857) na longitude.
 
+### Contagens finais, com `ST_Intersects`
+
+| Região | Linhas | Polígonos | Total | Razão | Pontos |
+| ------ | ------ | --------- | ----- | ----- | ------ |
+| `es_sul` | 31.163 | 29.558 | 60.721 | 1,05 | 1.891 |
+| `ms_campo_grande` | 34.603 | 25.625 | 60.228 | 1,35 | 13.838 |
+| `pr_centro` | 288.114 | 272.686 | 560.800 | 1,06 | 66.348 |
+| `pr_curitiba` | 225.443 | 333.219 | 558.662 | 1,48 | 476.404 |
+
+### Limites administrativos
+
+As quatro tabelas de polígonos têm limites administrativos aninhados: Brasil (4.387 km de largura em SRID 3857), fuso `America/Sao_Paulo`, macrorregiões, estados, regiões geográficas e municípios.
+
+Join entre linhas e polígonos em `es_sul`, medido com `ST_Intersects`:
+
+| Polígonos | Quantidade | Interseções | % das interseções |
+| --------- | ---------- | ----------- | ----------------- |
+| `boundary` = `administrative` ou `timezone` | 53 (0,18%) | 252.393 | 78,7% |
+| `boundary` = `protected_area` | 14 | 330 | 0,1% |
+| Sem `boundary` | 29.491 | 68.110 | 21,2% |
+| **Total** | **29.558** | **320.833** | **100%** |
+
+Os níveis 2, 3 e 4 e o fuso intersectam todas as 31.163 linhas. Cada linha tem, em média, 10,3 interseções.
+
+**Decisão:** esses polígonos saem nas tabelas `<região>_polygon_mapa`, criadas por `filtrar_limites.sql`. A regra e o motivo estão na seção "Tratamento dos dados" de `definicao-testes.md`. A medição é só de `es_sul`; em `pr_curitiba`, a contagem indica 708 polígonos a remover.
+
 As coordenadas exatas (`xmin`, `ymin`, `xmax`, `ymax`) estão em `/disk1/pol21/resultados/regioes/regioes_candidatas.csv`. Os nomes de lugares são aproximados, deduzidos das coordenadas, e precisam ser conferidos no mapa.
 
 ## Como ler
@@ -101,5 +127,6 @@ A região de Curitiba vem do OSM. Não é o mesmo dado do dataset Curitiba, de o
 
 ## Próximos passos
 
-1. Criar as tabelas no `jatoba2` e registrar aqui as contagens finais.
-2. Rodar um piloto na faixa de 500 mil.
+1. Rodar `filtrar_limites.sql` no `jatoba2` e registrar as quantidades removidas.
+2. Medir a faixa de 54 mil com e sem o filtro.
+3. Rodar um piloto na faixa de 500 mil, com o filtro.

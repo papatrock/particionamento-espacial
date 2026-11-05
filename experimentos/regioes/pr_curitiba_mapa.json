@@ -1,0 +1,30 @@
+{
+  "dataset": "pr_curitiba_mapa",
+  "srid": 3857,
+  "relacoes": {
+    "pontos": {
+      "schema": "regioes",
+      "tabela": "pr_curitiba_point",
+      "id": "osm_id",
+      "geom": "geom"
+    },
+    "linhas": {
+      "schema": "regioes",
+      "tabela": "pr_curitiba_line",
+      "id": "benchmark_id",
+      "geom": "geom"
+    },
+    "poligonos_a": {
+      "schema": "regioes",
+      "tabela": "pr_curitiba_polygon_mapa",
+      "id": "benchmark_id",
+      "geom": "geom"
+    },
+    "poligonos_b": {
+      "schema": "regioes",
+      "tabela": "pr_curitiba_polygon_mapa",
+      "id": "benchmark_id",
+      "geom": "geom"
+    }
+  }
+}
