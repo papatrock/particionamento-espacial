@@ -1,8 +1,8 @@
 """Roda as PPs em sequência, sem supervisão: uma etapa que falha não impede as seguintes.
 
-    nohup python3 rodar_noite.py > noite.log 2>&1 &
-    python3 rodar_noite.py --mostrar     # só lista o plano
-    pkill -f rodar_noite.py              # interrompe a etapa atual e encerra
+    nohup python3 rodar_tudo.py --saida /disk1/pol21/resultados/final > /disk1/pol21/rodada_final.log 2>&1 &
+    python3 rodar_tudo.py --mostrar     # só lista o plano
+    pkill -f rodar_tudo.py              # interrompe a etapa atual e encerra
 """
 import argparse
 import csv
@@ -23,15 +23,32 @@ def amostra(a, b):
     return ["--objetos-a", str(a), "--objetos-b", str(b)]
 
 
+# Tamanhos das tabelas _mapa: linhas e polígonos de cada região, usados por inteiro.
+ES_SUL = amostra(31_163, 29_505)
+MS = amostra(34_603, 25_371)
+PR_CENTRO = amostra(288_114, 271_951)
+PR_CURITIBA = amostra(225_443, 332_511)
+AMOSTRA_60MIL = amostra(60_000, 60_000)
+
+
+def config(regiao):
+    return ["--config", f"experimentos/regioes/{regiao}_mapa.json"]
+
+
+MASJ_REDUZIDO = ["--particoes-masj", "4", "64"]  # STR e Hilbert em MASJ pioram com mais partições e são os mais lentos.
+
 # (nome, script, argumentos, horas no máximo, respeita o prazo de início)
 # Argumentos da etapa vêm depois dos padrões, então um --saida aqui substitui o padrão.
 ETAPAS = [
-    # Faixa de 54 mil, com e sem os limites administrativos, ao lado de Curitiba.
-    ("pp1_54mil", "pp1", ["--datasets", "curitiba", "es_sul", "es_sul_mapa", "ms_campo_grande", "ms_campo_grande_mapa"], 3, True),
-    # Piloto para estimar a duração da faixa de 500 mil, na região com skew.
-    ("piloto_pp5_pr_curitiba", "pp5", ["--config", "experimentos/regioes/pr_curitiba_mapa.json", *amostra(225_443, 332_511), *ALVOS,
-                                       "--aquecimentos", "1", "--repeticoes", "2",
-                                       "--saida", "/disk1/pol21/resultados/piloto_500mil/pp5"], 4, True),
+    ("pp1_regioes", "pp1", ["--datasets", "curitiba", "es_sul_mapa", "ms_campo_grande_mapa", "pr_centro_mapa", "pr_curitiba_mapa"], 5, False),
+    ("pp3_es_sul", "pp3", [*config("es_sul"), *ES_SUL], 2, False),
+    ("pp3_pr_centro_60mil", "pp3", [*config("pr_centro"), *AMOSTRA_60MIL], 4, False),
+    ("pp4_es_sul", "pp4", [*config("es_sul"), *ES_SUL], 3, False),
+    ("pp4_ms_campo_grande", "pp4", [*config("ms_campo_grande"), *MS], 3, False),
+    ("pp2_pr_centro_60mil", "pp2", [*config("pr_centro"), *AMOSTRA_60MIL], 3, False),
+    ("pp2_pr_curitiba_60mil", "pp2", [*config("pr_curitiba"), *AMOSTRA_60MIL], 3, False),
+    ("pp5_pr_centro", "pp5", [*config("pr_centro"), *PR_CENTRO, *ALVOS, *MASJ_REDUZIDO], 6, False),
+    ("pp5_pr_curitiba", "pp5", [*config("pr_curitiba"), *PR_CURITIBA, *ALVOS, *MASJ_REDUZIDO], 6, False),
 ]
 ESPERA_LIMPEZA_S = 600
 parar = False
