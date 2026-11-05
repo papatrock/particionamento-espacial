@@ -3,7 +3,8 @@
     python3 medir_regioes.py --banco benchmark --saida /disk1/pol21/resultados/regioes
 
 O skew é o coeficiente de variação (CV) dos objetos de A + B em 8 × 8 blocos da janela. A divisão
-é sempre a mesma, então o CV é comparável entre janelas de tamanhos diferentes.
+é sempre a mesma, então o CV é comparável entre janelas de tamanhos diferentes. O máximo é
+√63 ≈ 7,94: tudo em um único bloco.
 """
 import argparse
 import csv
@@ -32,6 +33,10 @@ def argumentos():
     p.add_argument("--faixas", type=int, nargs="+", default=[54000, 500000],
                    help="Total de objetos de A + B em cada faixa (padrão: Curitiba e cerca de 10 vezes isso).")
     p.add_argument("--tolerancia", type=float, default=0.15, help="Diferença aceita em relação à faixa (padrão: 0,15).")
+    p.add_argument("--max-vazios-pct", type=float, default=10,
+                   help="Máximo de blocos vazios: janela em mar ou fora do país parece skew, mas não é (padrão: 10).")
+    p.add_argument("--razao-max", type=float, default=3,
+                   help="Razão máxima entre as duas relações, para a proporção não virar outra variável (padrão: 3).")
     p.add_argument("--celula-m", type=int, default=2000, help="Lado da célula da grade, em unidades do SRID 3857.")
     p.add_argument("--candidatas", type=int, default=5, help="Regiões listadas por perfil em cada faixa.")
     p.add_argument("--histograma", type=Path, help="Reaproveita um histograma já calculado, sem consultar o banco.")
@@ -75,7 +80,7 @@ def agrupar(celulas, tamanho):
     return blocos
 
 
-def janelas(celulas, tamanho, minimo, maximo):
+def janelas(celulas, tamanho, minimo, maximo, max_vazios, razao_max):
     """Percorre janelas de 8 × 8 blocos que caibam na faixa, avançando um bloco por vez."""
     linhas, poligonos = agrupar(celulas["l"], tamanho), agrupar(celulas["p"], tamanho)
     pontos = agrupar(celulas["o"], tamanho)
@@ -89,9 +94,9 @@ def janelas(celulas, tamanho, minimo, maximo):
             a, b, o = a + va, b + vb, o + pontos.get(chave, 0)
             valores.append(va + vb)
         total = a + b
-        # Exige as duas relações, para o join não virar um caso degenerado.
-        if minimo <= total <= maximo and min(a, b) >= 0.1 * total:
-            yield bx, by, a, b, o, total, statistics.pstdev(valores) / (total / len(valores)), valores.count(0)
+        vazios = valores.count(0)
+        if (minimo <= total <= maximo and vazios <= max_vazios and a and b and max(a, b) <= razao_max * min(a, b)):
+            yield bx, by, a, b, o, total, statistics.pstdev(valores) / (total / len(valores)), vazios
 
 
 def sem_sobreposicao(candidatas, limite):
@@ -108,10 +113,11 @@ def sem_sobreposicao(candidatas, limite):
 
 def propor(celulas, faixa, args):
     minimo, maximo = faixa * (1 - args.tolerancia), faixa * (1 + args.tolerancia)
+    max_vazios = args.max_vazios_pct / 100 * BLOCOS ** 2
     candidatas = []
     for tamanho in TAMANHOS_BLOCO:
         lado = tamanho * args.celula_m
-        for bx, by, a, b, o, total, cv, vazios in janelas(celulas, tamanho, minimo, maximo):
+        for bx, by, a, b, o, total, cv, vazios in janelas(celulas, tamanho, minimo, maximo, max_vazios, args.razao_max):
             x, y = bx * lado, by * lado
             candidatas.append({"faixa": faixa, "cv": round(cv, 3), "blocos_vazios_pct": round(100 * vazios / BLOCOS ** 2, 1),
                                "lado_km_em_3857": lado * BLOCOS / 1000, "total_a_b": total, "linhas": a, "poligonos": b,
