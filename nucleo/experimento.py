@@ -7,6 +7,7 @@ import sys
 
 from nucleo.arquivos import RAIZ, salvar_json
 from nucleo.consultas import SAIDA_A, SAIDA_B, identificador, literal
+from nucleo.servidor import resumir_plano
 
 ALGORITMOS = ("SEM_PARTICIONAMENTO", "TWO_LAYER", "STR", "HILBERT", "BSP")
 CODIGO_LIMITE = 3  # Saída de coletar_consultas.py quando uma consulta excede o limite.
@@ -156,7 +157,32 @@ class Experimento:
         comandos.append("COMMIT;")
         self.sql("\n".join(comandos), pasta / "materializacao")
 
+    def fixar_workers(self, dataset, algoritmo, pasta):
+        """Sem isso, o planejador decide pelo tamanho da tabela e pelo número de partições (log2(n) + 1)."""
+        workers = self.args.workers
+        if algoritmo == "SEM_PARTICIONAMENTO":
+            sql = "\n".join(f"ALTER TABLE {tabela} SET (parallel_workers = {workers});"
+                            for tabela in self.tabelas_entrada(dataset))
+        else:
+            # O parâmetro não existe em tabela particionada: precisa ir em cada partição.
+            sql = f"""DO $pp$ DECLARE r record; BEGIN
+                FOR r IN SELECT inhrelid::regclass AS particao FROM pg_inherits
+                         WHERE inhparent IN ({literal(SAIDA_A)}::regclass, {literal(SAIDA_B)}::regclass) LOOP
+                    EXECUTE format('ALTER TABLE %s SET (parallel_workers = {workers})', r.particao);
+                END LOOP; END $pp$;"""
+        self.sql(sql, pasta / "fixar_workers")
+
+    def restaurar_workers(self, dataset, pasta):
+        """Devolve as tabelas originais ao padrão; as amostras e saídas não precisam disso."""
+        self.sql("\n".join(f"ALTER TABLE {tabela} RESET (parallel_workers);"
+                           for tabela in self.tabelas_entrada(dataset)), pasta / "restaurar_workers")
+
+    @staticmethod
+    def tabelas_entrada(dataset):
+        return [identificador(dataset.get("schema", "public")) + "." + identificador(nome) for nome in dataset["tabelas"]]
+
     def medir(self, dataset, algoritmo, consulta, esperado, pasta):
+        self.fixar_workers(dataset, algoritmo, pasta)
         arquivo = pasta / "consulta.sql"
         arquivo.write_text(consulta + "\n", encoding="utf-8")
         comando = [
@@ -182,4 +208,7 @@ class Experimento:
         plano = self.sql(self.configuracao_sessao() + "\nEXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) " + consulta,
                          pasta / "plano")
         salvar_json(pasta / "plano.json", json.loads(plano))
+        lancados = resumir_plano(json.loads(plano))["resumo"]["plano_workers_lancados_max"]
+        if lancados != self.args.workers:
+            print(f"  Aviso: {algoritmo} lançou {lancados} de {self.args.workers} workers; confira {pasta / 'plano.json'}", flush=True)
         return next((pasta / "medicoes").glob("*/consultas.csv"))
