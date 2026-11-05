@@ -211,8 +211,8 @@ As tabelas originais (`brasil_line`, `brasil_polygon` e `brasil_point`) não sã
 
 **Limites e cuidados:**
 
-- A medição é só de `es_sul`. Nas outras regiões, só se sabe que esses polígonos existem. As quantidades removidas por região são informadas por `filtrar_limites.sql`.
-- O CV e a escolha das regiões vêm de `medir_regioes.py`, antes deste filtro. Como sai menos de 1% dos polígonos em `es_sul` e `pr_curitiba`, o efeito esperado no total é pequeno, mas o CV não foi recalculado.
+- A medição é só de `es_sul`. Nas outras regiões, só se sabe que esses polígonos existem. Foram removidos 53 polígonos em `es_sul`, 254 em `ms_campo_grande` (0,99%, a maior proporção), 735 em `pr_centro` e 708 em `pr_curitiba`.
+- O CV e a escolha das regiões vêm de `medir_regioes.py`, antes deste filtro. Como sai menos de 1% dos polígonos em cada região, o efeito esperado no total é pequeno, mas o CV não foi recalculado.
 - Remover objetos muda o dataset. Por isso, a metodologia precisa declarar a regra e a quantidade removida, e a faixa de 54 mil é medida com e sem o filtro, para mostrar o efeito.
 - As amostras do Brasil, o PP1 Brasil e os resultados de 04/11 não têm este filtro. Falta decidir se a rodada do Brasil completo também o usará.
 - **Validade das geometrias:** nenhum tratamento adicional foi necessário. PP2 a PP5 validam a fonte antes de amostrar (geometria válida, 2D, SRID e tipo corretos) e param se encontrarem problema. As execuções de 04/11 passaram por essa validação.
