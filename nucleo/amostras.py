@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 
 from nucleo.arquivos import salvar_json
-from nucleo.consultas import SAIDA_A, SAIDA_B, identificador, literal
+from nucleo.consultas import SAIDA_A, SAIDA_B, identificador, literal, pares_samj
 
 WORKLOADS = {"ponto_poligono": "pontos", "linha_poligono": "linhas", "poligono_poligono": "poligonos_a"}
 TIPOS = {"pontos": ("ST_Point", "ST_MultiPoint"), "linhas": ("ST_LineString", "ST_MultiLineString"),
@@ -86,13 +86,22 @@ def preparar_amostras(exp, config, args, schema, pasta):
     return caracteristicas
 
 
-def validar_pares(exp, dataset, algoritmo, pasta):
-    a, b = (identificador(dataset["schema"]) + "." + identificador(t) for t in dataset["tabelas"])
+def sql_pares_particionados(algoritmo, metadata):
+    if metadata and metadata.get("modelo_join") == "SAMJ":
+        # No SAMJ, os pares podem estar em grupos diferentes: percorre os mesmos pares da consulta medida.
+        return "\nUNION ALL\n".join(f"SELECT a.id AS id_a,b.id AS id_b FROM public.tabela_a_p{x} a "
+                                     f"JOIN public.tabela_b_p{y} b ON ST_Intersects(a.geom,b.geom)"
+                                     for x, y in pares_samj(algoritmo, metadata)) or "SELECT NULL::bigint,NULL::bigint WHERE false"
     condicao = "a.id_particao=b.id_particao AND ST_Intersects(a.geom,b.geom)"
     if algoritmo == "TWO_LAYER":
         condicao += " AND (a.classe='A' OR b.classe='A' OR (a.classe='B' AND b.classe='C') OR (a.classe='C' AND b.classe='B'))"
+    return f"SELECT a.id AS id_a,b.id AS id_b FROM {SAIDA_A} a JOIN {SAIDA_B} b ON {condicao}"
+
+
+def validar_pares(exp, dataset, algoritmo, pasta, metadata=None):
+    a, b = (identificador(dataset["schema"]) + "." + identificador(t) for t in dataset["tabelas"])
     sql = f"""WITH original AS (SELECT a.id AS id_a,b.id AS id_b FROM {a} a JOIN {b} b ON ST_Intersects(a.geom,b.geom)),
-        particionado AS (SELECT a.id AS id_a,b.id AS id_b FROM {SAIDA_A} a JOIN {SAIDA_B} b ON {condicao})
+        particionado AS ({sql_pares_particionados(algoritmo, metadata)})
         SELECT json_build_object(
           'extras', (SELECT count(*) FROM (SELECT * FROM particionado EXCEPT SELECT * FROM original) e),
           'faltantes', (SELECT count(*) FROM (SELECT * FROM original EXCEPT SELECT * FROM particionado) f));"""

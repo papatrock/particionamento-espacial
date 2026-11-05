@@ -17,7 +17,7 @@ TEMPOS = ("n", "mediana_ms", "media_ms", "desvio_ms", "minimo_ms", "maximo_ms",
 CONTEXTO = ("particoes_efetivas", "capacidade", "intersecoes", "seletividade",
             "particoes_vazias", "particoes_com_a_e_b", "carga_media", "carga_maxima", "carga_max_sobre_media",
             "carga_cv", "fator_replicacao", "pares_candidatos", "pares_max_sobre_media",
-            "particionamento_s", "materializacao_s", "tamanho_saidas_bytes",
+            "particionamento_s", "materializacao_s", "tamanho_saidas_bytes", "pares_de_particoes",
             "planejamento_primeiro_ms", "planejamento_mediana_ms", "plano_execucao_ms",
             "plano_gathers", "plano_workers_planejados_max", "plano_workers_lancados_max", "plano_gathers_com_deficit")
 
@@ -34,13 +34,13 @@ def analisar(resultados=RAIZ):
         tempos = [float(l["tempo_cliente_ms"]) for l in linhas]
         if any(not math.isfinite(t) or t < 0 for t in tempos):
             raise ValueError("Tempo inválido no CSV")
-        if any(any(l[c] != linhas[0][c] for c in CONTEXTO) for l in linhas):
+        if any(any(l.get(c, "") != linhas[0].get(c, "") for c in CONTEXTO) for l in linhas):
             raise ValueError("Contexto divergente dentro de um caso")
         resumos.append({**dict(zip(CHAVES, chave)), "algoritmo": algoritmo, "particoes_alvo": alvo or "",
                         "n": len(tempos), "mediana_ms": statistics.median(tempos), "media_ms": statistics.mean(tempos),
                         "desvio_ms": statistics.stdev(tempos) if len(tempos) > 1 else "",
                         "minimo_ms": min(tempos), "maximo_ms": max(tempos),
-                        **{c: linhas[0][c] for c in CONTEXTO}})
+                        **{c: linhas[0].get(c, "") for c in CONTEXTO}})
     baselines, melhores = {}, {}
     for r in resumos:
         chave = tuple(r[c] for c in CHAVES)

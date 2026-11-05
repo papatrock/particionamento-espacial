@@ -18,19 +18,25 @@ def consulta_direta(dataset):
     return f"SELECT COUNT(*) FROM {a} a JOIN {b} b ON ST_Intersects(a.{geom}, b.{geom});"
 
 
+def pares_samj(algoritmo, metadados):
+    """Pares de grupos candidatos, validados e em ordem estável."""
+    if algoritmo not in ("STR", "HILBERT"):
+        raise ValueError("Join SAMJ disponível somente para STR e Hilbert")
+    ids = {ocupacao["id"] for ocupacao in metadados["ocupacoes"]}
+    pares = []
+    for par in metadados["pares_particoes"]:
+        a, b = par["a"], par["b"]
+        if type(a) is not int or type(b) is not int or a <= 0 or b <= 0 or a not in ids or b not in ids:
+            raise ValueError("Par de partições SAMJ inválido")
+        pares.append((a, b))
+    if len(pares) != len(set(pares)):
+        raise ValueError("Pares de partições SAMJ duplicados")
+    return sorted(pares)
+
+
 def consulta_particionada(algoritmo, metadados=None):
     if metadados and metadados.get("modelo_join") == "SAMJ":
-        if algoritmo not in ("STR", "HILBERT"):
-            raise ValueError("Join SAMJ disponível somente para STR e Hilbert")
-        ids = {ocupacao["id"] for ocupacao in metadados["ocupacoes"]}
-        pares = []
-        for par in metadados["pares_particoes"]:
-            a, b = par["a"], par["b"]
-            if type(a) is not int or type(b) is not int or a <= 0 or b <= 0 or a not in ids or b not in ids:
-                raise ValueError("Par de partições SAMJ inválido")
-            pares.append((a, b))
-        if len(pares) != len(set(pares)):
-            raise ValueError("Pares de partições SAMJ duplicados")
+        pares = pares_samj(algoritmo, metadados)
         if not pares:
             return "SELECT 0::bigint;"
         # Cada objeto tem um único grupo e cada par de grupos aparece uma vez.
@@ -38,7 +44,7 @@ def consulta_particionada(algoritmo, metadados=None):
         consultas = [
             f"SELECT COUNT(*) AS total FROM public.tabela_a_p{a} a "
             f"JOIN public.tabela_b_p{b} b ON ST_Intersects(a.geom, b.geom)"
-            for a, b in sorted(pares)
+            for a, b in pares
         ]
         return "SELECT SUM(total)::bigint FROM (\n" + "\nUNION ALL\n".join(consultas) + "\n) pares;"
     condicao = "a.id_particao = b.id_particao AND ST_Intersects(a.geom, b.geom)"

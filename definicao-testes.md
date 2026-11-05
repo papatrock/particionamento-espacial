@@ -114,7 +114,7 @@ Fixar: GiST, workers, granularidade-alvo, workload
 Algoritmos: SEM_PARTICIONAMENTO, TWO_LAYER, STR, HILBERT, BSP, STR_SAMJ, HILBERT_SAMJ
 dataset: Curitiba (pequeno), Brasil (gigantesco)
 
-Modelo de join: STR, Hilbert e BSP usam MASJ em todas as PPs, como em Aji, Vo e Wang (2015), seções 2.2 e 3.1. STR_SAMJ e HILBERT_SAMJ são variantes da PP1, medidas à parte. Comparar os algoritmos pelo MASJ; os resultados anteriores com `modelo_pp1 = str_hilbert_samj_v1` correspondem às variantes SAMJ, não ao caso principal.
+Modelo de join: STR, Hilbert e BSP usam MASJ em todas as PPs, como em Aji, Vo e Wang (2015), seções 2.2 e 3.1. STR_SAMJ e HILBERT_SAMJ são variantes medidas à parte em PP1, PP4 e PP5. Comparar os algoritmos pelo MASJ; os resultados anteriores com `modelo_pp1 = str_hilbert_samj_v1` correspondem às variantes SAMJ, não ao caso principal.
 
 Limite: `--limite-consulta-min` (padrão 120). O caso que estoura fica como `nao_concluiu` no manifesto e a execução continua.
 
@@ -138,7 +138,7 @@ Automação: `python3 pp5.py --objetos-a N --objetos-b M` usa as mesmas amostras
 Variar: algoritmo, nº de partições (`--particoes`, padrão 4, 16, 64, 256 e 1024; Two-Layer exige quadrados perfeitos)
 Fixar: dataset, workload, workers (`--workers`, padrão 8), GiST
 
-Modelo de join: MASJ, como nas demais PPs. O fator de replicação do resumo corresponde a `1 + α` no modelo de custo de Aji, Vo e Wang (2015), seção 2.3.
+Modelo de join: MASJ, com as variantes STR_SAMJ e HILBERT_SAMJ medidas à parte. `--particoes-masj` limita os alvos de STR e Hilbert em MASJ, os casos mais lentos. O fator de replicação do resumo corresponde a `1 + α` no modelo de custo de Aji, Vo e Wang (2015), seção 2.3.
 
 SEM_PARTICIONAMENTO não depende do alvo: é medido uma vez, como referência. Comparar os algoritmos pelas partições efetivas, pois o BSP pode não atingir o alvo.
 
