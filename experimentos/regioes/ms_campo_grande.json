@@ -1,0 +1,30 @@
+{
+  "dataset": "ms_campo_grande",
+  "srid": 3857,
+  "relacoes": {
+    "pontos": {
+      "schema": "regioes",
+      "tabela": "ms_campo_grande_point",
+      "id": "osm_id",
+      "geom": "geom"
+    },
+    "linhas": {
+      "schema": "regioes",
+      "tabela": "ms_campo_grande_line",
+      "id": "benchmark_id",
+      "geom": "geom"
+    },
+    "poligonos_a": {
+      "schema": "regioes",
+      "tabela": "ms_campo_grande_polygon",
+      "id": "benchmark_id",
+      "geom": "geom"
+    },
+    "poligonos_b": {
+      "schema": "regioes",
+      "tabela": "ms_campo_grande_polygon",
+      "id": "benchmark_id",
+      "geom": "geom"
+    }
+  }
+}

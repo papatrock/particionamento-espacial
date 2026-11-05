@@ -27,6 +27,11 @@ DATASETS = {
                "geom": "geom", "id": "benchmark_id", "srid": 3857,
                "tipos": ("MultiLineString", "MultiPolygon"),
                "tipos_origem": ("LineString", "Polygon")},
+    # Recortes de experimentos/regioes/criar_regioes.sql.
+    **{nome: {"cenario": "linha_poligono", "schema": "regioes", "tabelas": (f"{nome}_line", f"{nome}_polygon"),
+              "geom": "geom", "id": "benchmark_id", "srid": 3857,
+              "tipos": ("MultiLineString", "MultiPolygon"), "tipos_origem": ("LineString", "Polygon")}
+       for nome in ("es_sul", "ms_campo_grande", "pr_centro", "pr_curitiba")},
 }
 
 
@@ -47,7 +52,7 @@ def argumentos():
     parser.add_argument("--porta", type=int)
     parser.add_argument("--usuario")
     parser.add_argument("--pedir-senha", action="store_true", help="Solicita a senha uma vez para todos os processos psql.")
-    parser.add_argument("--datasets", nargs="+", choices=DATASETS, default=list(DATASETS))
+    parser.add_argument("--datasets", nargs="+", choices=DATASETS, default=["curitiba", "brasil"])
     parser.add_argument("--algoritmos", nargs="+", choices=(*ALGORITMOS, *VARIANTES_SAMJ),
                         default=[*ALGORITMOS, *VARIANTES_SAMJ])
     parser.add_argument("--limite-consulta-min", type=float, default=120,
@@ -109,7 +114,7 @@ def executar(args):
         with (pasta / "consultas.csv").open("w", newline="", encoding="utf-8") as consolidado:
             writer = None
             for nome in args.datasets:
-                dataset = {**DATASETS[nome], "id": getattr(args, "id_" + nome)}
+                dataset = {**DATASETS[nome], "id": getattr(args, "id_" + nome, DATASETS[nome]["id"])}
                 destino = pasta / nome
                 destino.mkdir()
                 print(f"Validando entradas e GiST de {nome}...", flush=True)

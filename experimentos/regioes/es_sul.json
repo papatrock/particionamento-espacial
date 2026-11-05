@@ -1,0 +1,30 @@
+{
+  "dataset": "es_sul",
+  "srid": 3857,
+  "relacoes": {
+    "pontos": {
+      "schema": "regioes",
+      "tabela": "es_sul_point",
+      "id": "osm_id",
+      "geom": "geom"
+    },
+    "linhas": {
+      "schema": "regioes",
+      "tabela": "es_sul_line",
+      "id": "benchmark_id",
+      "geom": "geom"
+    },
+    "poligonos_a": {
+      "schema": "regioes",
+      "tabela": "es_sul_polygon",
+      "id": "benchmark_id",
+      "geom": "geom"
+    },
+    "poligonos_b": {
+      "schema": "regioes",
+      "tabela": "es_sul_polygon",
+      "id": "benchmark_id",
+      "geom": "geom"
+    }
+  }
+}
