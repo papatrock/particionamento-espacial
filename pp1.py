@@ -17,7 +17,7 @@ from nucleo.perf_coleta import argumentos_perf, verificar_perf
 
 # STR, Hilbert e BSP seguem o MASJ de Aji, Vo e Wang (2015); as variantes medem a associação única à parte.
 VARIANTES_SAMJ = {"STR_SAMJ": "STR", "HILBERT_SAMJ": "HILBERT"}
-MODELO_PP1 = "masj_variantes_samj_v2"
+MODELO_PP1 = "masj_variantes_samj_workers_fixos_v3"
 DATASETS = {
     "curitiba": {"cenario": "ruas_quadras", "tabelas": ("eixo_rua", "arruamento_quadras"),
                  "geom": "geom", "id": "gid", "srid": 31982,
@@ -146,6 +146,9 @@ def executar(args):
                                             particoes_efetivas=metadata["particoes_efetivas"])
                             salvar_json(pasta / "manifesto.json", manifesto)
                             continue
+                        finally:
+                            if algoritmo == "SEM_PARTICIONAMENTO":
+                                experimento.restaurar_workers(dataset, caso)
                         with medicoes.open(newline="", encoding="utf-8") as arquivo:
                             for linha in csv.DictReader(arquivo):
                                 linha.update(dataset=nome, particoes_alvo=args.particoes if algoritmo != "SEM_PARTICIONAMENTO" else "",

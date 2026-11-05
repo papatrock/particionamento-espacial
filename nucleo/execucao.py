@@ -45,6 +45,8 @@ class ExecucaoAmostrada:
         return registro
 
     def concluir_caso(self, registro, medicoes, contexto, intersecoes):
+        # Separa estas execuções das anteriores, em que o planejador escolhia os workers.
+        contexto = {**contexto, "workers_fixos": "sim"}
         anexar_csv(medicoes, self.pasta / "consultas.csv", contexto)
         if self.args.perf:
             anexar_csv(medicoes.parent / "perf.csv", self.pasta / "perf.csv", contexto)
