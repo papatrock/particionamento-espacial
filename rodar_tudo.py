@@ -39,16 +39,17 @@ MASJ_REDUZIDO = ["--particoes-masj", "4", "64"]  # STR e Hilbert em MASJ pioram 
 
 # (nome, script, argumentos, horas no máximo, respeita o prazo de início)
 # Argumentos da etapa vêm depois dos padrões, então um --saida aqui substitui o padrão.
+# Refaz só os baselines de PP2 a PP5, com as amostras gravadas por id. Os particionados não mudam.
+SO_BASELINE = ["--algoritmos", "SEM_PARTICIONAMENTO"]
 ETAPAS = [
-    ("pp1_regioes", "pp1", ["--datasets", "curitiba", "es_sul_mapa", "ms_campo_grande_mapa", "pr_centro_mapa", "pr_curitiba_mapa"], 5, False),
-    ("pp3_es_sul", "pp3", [*config("es_sul"), *ES_SUL], 2, False),
-    ("pp3_pr_centro_60mil", "pp3", [*config("pr_centro"), *AMOSTRA_60MIL], 4, False),
-    ("pp4_es_sul", "pp4", [*config("es_sul"), *ES_SUL], 3, False),
-    ("pp4_ms_campo_grande", "pp4", [*config("ms_campo_grande"), *MS], 3, False),
-    ("pp2_pr_centro_60mil", "pp2", [*config("pr_centro"), *AMOSTRA_60MIL], 3, False),
-    ("pp2_pr_curitiba_60mil", "pp2", [*config("pr_curitiba"), *AMOSTRA_60MIL], 3, False),
-    ("pp5_pr_centro", "pp5", [*config("pr_centro"), *PR_CENTRO, *ALVOS, *MASJ_REDUZIDO], 6, False),
-    ("pp5_pr_curitiba", "pp5", [*config("pr_curitiba"), *PR_CURITIBA, *ALVOS, *MASJ_REDUZIDO], 6, False),
+    ("pp2_pr_centro_baseline", "pp2", [*config("pr_centro"), *AMOSTRA_60MIL, *SO_BASELINE], 1, False),
+    ("pp2_pr_curitiba_baseline", "pp2", [*config("pr_curitiba"), *AMOSTRA_60MIL, *SO_BASELINE], 1, False),
+    ("pp3_es_sul_baseline", "pp3", [*config("es_sul"), *ES_SUL, *SO_BASELINE], 1, False),
+    ("pp3_pr_centro_baseline", "pp3", [*config("pr_centro"), *AMOSTRA_60MIL, *SO_BASELINE], 2, False),
+    ("pp4_es_sul_baseline", "pp4", [*config("es_sul"), *ES_SUL, *SO_BASELINE], 1, False),
+    ("pp4_ms_campo_grande_baseline", "pp4", [*config("ms_campo_grande"), *MS, *SO_BASELINE], 1, False),
+    ("pp5_pr_centro_baseline", "pp5", [*config("pr_centro"), *PR_CENTRO, *SO_BASELINE], 1, False),
+    ("pp5_pr_curitiba_baseline", "pp5", [*config("pr_curitiba"), *PR_CURITIBA, *SO_BASELINE], 1, False),
 ]
 ESPERA_LIMPEZA_S = 600
 parar = False

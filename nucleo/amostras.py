@@ -31,9 +31,13 @@ def tabela(relacao):
 
 def sql_amostra(relacao, destino, quantidade, semente, pular=0):
     id_, geom = identificador(relacao["id"]), identificador(relacao["geom"])
-    return (f"CREATE TABLE {destino} AS SELECT {id_}::bigint AS id, ST_Multi({geom}) AS geom "
+    # O hash só sorteia; a tabela é gravada por id, como as partições. Gravar na ordem do sorteio
+    # espalhava objetos vizinhos pelo disco e deixava só o baseline mais lento.
+    return (f"CREATE TABLE {destino} AS SELECT id, geom FROM ("
+            f"SELECT {id_}::bigint AS id, ST_Multi({geom}) AS geom "
             f"FROM {tabela(relacao)} WHERE NOT ST_IsEmpty({geom}) "
-            f"ORDER BY md5({id_}::text || ':' || {literal(semente)}), {id_}::bigint LIMIT {quantidade} OFFSET {pular};")
+            f"ORDER BY md5({id_}::text || ':' || {literal(semente)}), {id_}::bigint LIMIT {quantidade} OFFSET {pular}"
+            f") sorteio ORDER BY id;")
 
 
 def objetos_a_pular(config, args, nome):
