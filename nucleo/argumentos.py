@@ -3,7 +3,7 @@ import argparse
 from math import isqrt
 from pathlib import Path
 
-from nucleo.amostras import WORKLOADS
+from nucleo.amostras import ORDENS_AMOSTRA, WORKLOADS
 from nucleo.arquivos import RAIZ
 from nucleo.experimento import ALGORITMOS, VARIANTES_SAMJ
 from nucleo.perf_coleta import argumentos_perf
@@ -15,6 +15,8 @@ def criar_parser(workers_lista=False, particoes_lista=False, variantes_samj=Fals
     p.add_argument("--objetos-a", type=int, required=True, help="Quantidade exata de objetos em A em cada workload.")
     p.add_argument("--objetos-b", type=int, required=True, help="Quantidade exata de polígonos em B, compartilhados pelos workloads.")
     p.add_argument("--semente", type=int, default=42, help="Seleção determinística por hash do ID e semente.")
+    p.add_argument("--ordem-amostra", choices=ORDENS_AMOSTRA, default="id",
+                   help="Ordem física de gravação das amostras; os objetos não mudam (padrão: id).")
     p.add_argument("--workloads", nargs="+", choices=WORKLOADS, default=list(WORKLOADS))
     algoritmos = [*ALGORITMOS, *VARIANTES_SAMJ] if variantes_samj else list(ALGORITMOS)
     p.add_argument("--algoritmos", nargs="+", choices=algoritmos, default=algoritmos)

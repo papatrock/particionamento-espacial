@@ -29,15 +29,26 @@ def tabela(relacao):
     return identificador(relacao["schema"]) + "." + identificador(relacao["tabela"])
 
 
-def sql_amostra(relacao, destino, quantidade, semente, pular=0):
+# Ordem física em que a amostra é gravada. Os objetos são sempre os mesmos; só muda a posição no disco.
+# "id" é o padrão desde 08/11; "sorteio" reproduz as amostras de 05/11; "espacial" agrupa vizinhos
+# pelo geohash do centroide (curva Z), para medir o efeito da localidade no baseline.
+ORDENS_AMOSTRA = {
+    "id": "id",
+    "sorteio": "ordem_sorteio",
+    "espacial": "ST_GeoHash(ST_Transform(ST_Centroid(geom), 4326)), id",
+}
+
+
+def sql_amostra(relacao, destino, quantidade, semente, pular=0, ordem="id"):
     id_, geom = identificador(relacao["id"]), identificador(relacao["geom"])
-    # O hash só sorteia; a tabela é gravada por id, como as partições. Gravar na ordem do sorteio
-    # espalhava objetos vizinhos pelo disco e deixava só o baseline mais lento.
+    sorteio = f"md5({id_}::text || ':' || {literal(semente)}), {id_}::bigint"
+    # O hash só sorteia quais objetos entram; ORDENS_AMOSTRA decide a ordem de gravação.
     return (f"CREATE TABLE {destino} AS SELECT id, geom FROM ("
-            f"SELECT {id_}::bigint AS id, ST_Multi({geom}) AS geom "
+            f"SELECT {id_}::bigint AS id, ST_Multi({geom}) AS geom, "
+            f"row_number() OVER (ORDER BY {sorteio}) AS ordem_sorteio "
             f"FROM {tabela(relacao)} WHERE NOT ST_IsEmpty({geom}) "
-            f"ORDER BY md5({id_}::text || ':' || {literal(semente)}), {id_}::bigint LIMIT {quantidade} OFFSET {pular}"
-            f") sorteio ORDER BY id;")
+            f"ORDER BY {sorteio} LIMIT {quantidade} OFFSET {pular}"
+            f") sorteio ORDER BY {ORDENS_AMOSTRA[ordem]};")
 
 
 def objetos_a_pular(config, args, nome):
@@ -71,7 +82,7 @@ def preparar_amostras(exp, config, args, schema, pasta):
         n = args.objetos_b if nome == "poligonos_b" else args.objetos_a
         destino = identificador(schema) + "." + identificador(nome)
         comandos.append(sql_amostra(config["relacoes"][nome], destino, n, args.semente,
-                                    objetos_a_pular(config, args, nome)))
+                                    objetos_a_pular(config, args, nome), getattr(args, "ordem_amostra", "id")))
     comandos.append("COMMIT;")
     print("Criando amostras com as cardinalidades solicitadas...", flush=True)
     exp.sql("\n".join(comandos), pasta / "amostragem")
