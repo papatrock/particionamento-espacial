@@ -72,9 +72,11 @@ public final class ParticionamentoRunner {
         long[] ocupacaoB = salvar(saida.resolve("b.tsv"), b, resultadoB, grade.size());
         String plano = samj ? planoSamj(conjunto) : "";
         var ocupacoes = new ArrayList<String>();
+        // A região de cada partição também vai para o JSON, para medir sobreposição fora do Java.
         for (int i = 0; i < grade.size(); i++) {
             ocupacoes.add("{\"id\":" + grade.get(i).getIdParticao()
-                    + ",\"objetos_a\":" + ocupacaoA[i] + ",\"objetos_b\":" + ocupacaoB[i] + "}");
+                    + ",\"objetos_a\":" + ocupacaoA[i] + ",\"objetos_b\":" + ocupacaoB[i]
+                    + ",\"regiao\":" + wktJson(grade.get(i).getWktFronteira()) + "}");
         }
         String json = "{\"algoritmo\":\"" + estrategia + "\",\"particoes_alvo\":" + alvo
                 + ",\"modelo_join\":\"" + modelo + "\""
