@@ -1,6 +1,7 @@
 """Roda as PPs em sequência, sem supervisão: uma etapa que falha não impede as seguintes.
 
     nohup python3 rodar_tudo.py --plano perf --saida /disk1/pol21/resultados/perf > /disk1/pol21/rodada_perf.log 2>&1 &
+    nohup python3 rodar_tudo.py --plano repeticao --saida /disk1/pol21/resultados/repeticao > /disk1/pol21/rodada_repeticao.log 2>&1 &
     python3 rodar_tudo.py --plano perf --mostrar     # só lista o plano
     pkill -f rodar_tudo.py                           # interrompe a etapa atual e encerra
 """
@@ -70,7 +71,20 @@ PLANO_BASELINES = [
     ("pp5_pr_centro_baseline", "pp5", [*config("pr_centro"), *PR_CENTRO, *SO_BASELINE], 1, False),
     ("pp5_pr_curitiba_baseline", "pp5", [*config("pr_curitiba"), *PR_CURITIBA, *SO_BASELINE], 1, False),
 ]
-PLANOS = {"perf": PLANO_PERF, "baselines": PLANO_BASELINES}
+# Repete PP2 a PP5 completos, com as amostras gravadas por id (padrão desde 08/11). Na rodada de 05/11,
+# o baseline lia as amostras na ordem do sorteio e os particionados não; aqui os dois usam a mesma ordem.
+# Comparar o baseline daqui com o de 08/11 (mesma ordem e código) mede só a variação entre dias.
+PLANO_REPETICAO = [
+    ("pp3_es_sul", "pp3", [*config("es_sul"), *ES_SUL], 2, False),
+    ("pp3_pr_centro_60mil", "pp3", [*config("pr_centro"), *AMOSTRA_60MIL], 4, False),
+    ("pp4_es_sul", "pp4", [*config("es_sul"), *ES_SUL], 3, False),
+    ("pp4_ms_campo_grande", "pp4", [*config("ms_campo_grande"), *MS], 3, False),
+    ("pp2_pr_centro_60mil", "pp2", [*config("pr_centro"), *AMOSTRA_60MIL], 3, False),
+    ("pp2_pr_curitiba_60mil", "pp2", [*config("pr_curitiba"), *AMOSTRA_60MIL], 3, False),
+    ("pp5_pr_centro", "pp5", [*config("pr_centro"), *PR_CENTRO, *ALVOS, *MASJ_REDUZIDO], 6, False),
+    ("pp5_pr_curitiba", "pp5", [*config("pr_curitiba"), *PR_CURITIBA, *ALVOS, *MASJ_REDUZIDO], 6, False),
+]
+PLANOS = {"perf": PLANO_PERF, "baselines": PLANO_BASELINES, "repeticao": PLANO_REPETICAO}
 ESPERA_LIMPEZA_S = 600
 parar = False
 
